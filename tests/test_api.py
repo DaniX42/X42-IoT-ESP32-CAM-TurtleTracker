@@ -6,6 +6,7 @@ from turtle_tracker.app import create_app
 from turtle_tracker.config import Settings
 from turtle_tracker.db import Database
 from turtle_tracker.mock import mock_jpeg
+from turtle_tracker.vision import decode_jpeg
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -52,4 +53,4 @@ def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
     latest = client.get("/api/frames/outdoor/latest")
     assert latest.status_code == 200
     assert latest.headers["content-type"] == "image/jpeg"
-    assert latest.content == payload
+    assert decode_jpeg(latest.content).shape[:2] == (640, 360)

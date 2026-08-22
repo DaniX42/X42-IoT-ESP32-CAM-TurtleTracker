@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import cv2
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 
 from .calibration import HomographyCalibration
@@ -64,7 +65,11 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
-        return Response(content=payload, media_type="image/jpeg")
+        image = cv2.rotate(decode_jpeg(payload), cv2.ROTATE_90_COUNTERCLOCKWISE)
+        success, rotated_payload = cv2.imencode(".jpg", image)
+        if not success:
+            raise HTTPException(status_code=500, detail="Could not encode latest frame")
+        return Response(content=rotated_payload.tobytes(), media_type="image/jpeg")
 
     @app.get("/api/position", response_model=Position)
     def current_position() -> Position:
