@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+firmware/secrets.ini
+firmware/src/generated_secrets.h
+firmware/.pio/
+data/*.db
+data/*.sqlite
+.DS_Store

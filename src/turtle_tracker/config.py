@@ -1,0 +1,19 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    database_path: Path = Path("data/turtle_tracker.db")
+    mock_images_enabled: bool = True
+    enclosure_length_meters: float = 7.0
+    enclosure_width_meters: float = 2.5
+    min_confidence: float = 0.1
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
