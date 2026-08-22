@@ -40,3 +40,16 @@ def test_accepts_raw_jpeg_payload_from_camera(tmp_path: Path):
     response = client.post("/api/frames/outdoor", content=mock_jpeg(), headers={"content-type": "image/jpeg"})
     assert response.status_code == 200
     assert response.json()["accepted"] is True
+
+
+def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
+    client = make_client(tmp_path)
+    payload = mock_jpeg()
+
+    response = client.post("/api/frames/outdoor", content=payload, headers={"content-type": "image/jpeg"})
+
+    assert response.status_code == 200
+    latest = client.get("/api/frames/outdoor/latest")
+    assert latest.status_code == 200
+    assert latest.headers["content-type"] == "image/jpeg"
+    assert latest.content == payload

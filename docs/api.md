@@ -30,3 +30,7 @@ The service exposes OpenAPI documentation at `/docs`.
 `POST /api/frames/{camera_id}` accepts a JPEG in multipart field `file`.
 
 `POST /api/mock/frame` runs the same path using a generated JPEG while camera hardware is unavailable.
+
+## Latest frame
+
+`GET /api/frames/{camera_id}/latest` returns the latest valid JPEG received for the camera with `Content-Type: image/jpeg`. It returns `404` until the first frame has been received. The endpoint is intended for Home Assistant's Generic Camera integration.

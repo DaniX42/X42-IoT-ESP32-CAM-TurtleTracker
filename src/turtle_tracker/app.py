@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 
 from .calibration import HomographyCalibration
 from .config import Settings, get_settings
@@ -27,6 +27,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     )
     detector = MotionDetector()
     tracker = PositionTracker(calibration)
+    latest_frames: dict[str, bytes] = {}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -41,9 +42,11 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if not payload:
             raise HTTPException(status_code=400, detail="JPEG payload is required")
         try:
-            detection = detector.detect(decode_jpeg(payload))
+            image = decode_jpeg(payload)
+            detection = detector.detect(image)
         except ValueError as error:
             raise HTTPException(status_code=415, detail=str(error)) from error
+        latest_frames[camera_id] = payload
         if detection is None or detection.confidence < settings.min_confidence:
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
@@ -55,6 +58,13 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/frames/{camera_id}/latest", response_class=Response)
+    def latest_frame(camera_id: str) -> Response:
+        payload = latest_frames.get(camera_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="No frame received")
+        return Response(content=payload, media_type="image/jpeg")
 
     @app.get("/api/position", response_model=Position)
     def current_position() -> Position:
