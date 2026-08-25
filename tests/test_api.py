@@ -53,4 +53,14 @@ def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
     latest = client.get("/api/frames/outdoor/latest")
     assert latest.status_code == 200
     assert latest.headers["content-type"] == "image/jpeg"
-    assert decode_jpeg(latest.content).shape[:2] == (640, 360)
+    assert decode_jpeg(latest.content).shape[:2] == (640, 346)
+
+
+def test_latest_frame_contains_enclosure_overlay(tmp_path: Path):
+    client = make_client(tmp_path)
+
+    client.post("/api/frames/outdoor", content=mock_jpeg(), headers={"content-type": "image/jpeg"})
+
+    image = decode_jpeg(client.get("/api/frames/outdoor/latest").content)
+    turquoise_pixels = (image[:, :, 0] > 130) & (image[:, :, 1] > 130) & (image[:, :, 2] < 130)
+    assert turquoise_pixels.sum() > 100

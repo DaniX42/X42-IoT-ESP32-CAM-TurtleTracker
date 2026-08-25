@@ -10,7 +10,7 @@ from .db import Database, row_to_dict
 from .models import HeatmapPoint, IngestResponse, Position
 from .mock import mock_jpeg
 from .tracking import PositionTracker
-from .vision import MotionDetector, decode_jpeg
+from .vision import MotionDetector, crop_preview, decode_jpeg, draw_enclosure_overlay
 
 
 def _utc_now() -> datetime:
@@ -65,8 +65,10 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
-        image = cv2.rotate(decode_jpeg(payload), cv2.ROTATE_90_COUNTERCLOCKWISE)
-        success, rotated_payload = cv2.imencode(".jpg", image)
+        image = cv2.rotate(draw_enclosure_overlay(decode_jpeg(payload)), cv2.ROTATE_90_COUNTERCLOCKWISE)
+        image = crop_preview(image)
+        image = cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
+        success, rotated_payload = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode latest frame")
         return Response(content=rotated_payload.tobytes(), media_type="image/jpeg")

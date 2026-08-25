@@ -1,4 +1,15 @@
 .venv/
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+data/*.db
+firmware/data/*.db
+.env
+firmware/secrets.ini
+firmware/src/generated_secrets.h
+firmware/.pio/.venv/
 __pycache__/
 .pytest_cache/
 *.py[cod]
