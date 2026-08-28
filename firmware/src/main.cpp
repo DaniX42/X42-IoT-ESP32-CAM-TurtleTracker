@@ -53,7 +53,7 @@ constexpr uint8_t Y2_GPIO_NUM = 5;
 constexpr uint8_t VSYNC_GPIO_NUM = 25;
 constexpr uint8_t HREF_GPIO_NUM = 23;
 constexpr uint8_t PCLK_GPIO_NUM = 22;
-constexpr unsigned long FRAME_INTERVAL_MS = 10000;
+constexpr unsigned long FRAME_INTERVAL_MS = 5000;
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
@@ -84,8 +84,7 @@ void publishDiscovery(const char* component, const char* objectId, const char* n
   document["payload_not_available"] = "offline";
   String payload;
   serializeJson(document, payload);
-  bool published = mqtt.publish(discovery.c_str(), payload.c_str(), true);
-  Serial.printf("MQTT discovery %s: %s (%u bytes)\n", objectId, published ? "published" : "failed", payload.length());
+  mqtt.publish(discovery.c_str(), payload.c_str(), true);
 }
 
 void publishDiscovery() {
@@ -102,11 +101,8 @@ void connectMqtt() {
   lastMqttAttempt = millis();
   String clientId = String(TT_DEVICE_NAME) + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
   if (mqtt.connect(clientId.c_str(), TT_MQTT_USER, TT_MQTT_PASSWORD, topic("availability").c_str(), 1, true, "offline")) {
-    Serial.println("MQTT connected");
     mqtt.publish(topic("availability").c_str(), "online", true);
     publishDiscovery();
-  } else {
-    Serial.printf("MQTT connection failed, state: %d\n", mqtt.state());
   }
 }
 
@@ -129,8 +125,21 @@ bool setupCamera() {
   config.pin_sscb_sda = SIOD_GPIO_NUM; config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000; config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_SVGA; config.jpeg_quality = 12; config.fb_count = psramFound() ? 2 : 1;
-  return esp_camera_init(&config) == ESP_OK;
+  config.frame_size = FRAMESIZE_UXGA; config.jpeg_quality = 10; config.fb_count = psramFound() ? 2 : 1;
+  if (esp_camera_init(&config) != ESP_OK) return false;
+#ifdef TT_DOOR_CAMERA
+  sensor_t* sensor = esp_camera_sensor_get();
+  if (sensor) {
+    sensor->set_quality(sensor, 12);
+    sensor->set_brightness(sensor, 0);
+    sensor->set_contrast(sensor, 0);
+    sensor->set_saturation(sensor, 0);
+    sensor->set_gain_ctrl(sensor, 1);
+    sensor->set_exposure_ctrl(sensor, 1);
+    sensor->set_whitebal(sensor, 1);
+  }
+#endif
+  return true;
 }
 
 void sendFrame() {
@@ -171,7 +180,6 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print('.'); }
   Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
   setupOta();
-  mqtt.setBufferSize(1024);
   mqtt.setServer(TT_MQTT_HOST, TT_MQTT_PORT);
   server.on("/health", []() { server.send(200, "text/plain", "ok"); });
   server.begin();

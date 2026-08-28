@@ -10,11 +10,19 @@ from .db import Database, row_to_dict
 from .models import HeatmapPoint, IngestResponse, Position
 from .mock import mock_jpeg
 from .tracking import PositionTracker
-from .vision import MotionDetector, crop_preview, decode_jpeg, draw_enclosure_overlay
+from .vision import MotionDetector, decode_jpeg, draw_enclosure_overlay
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _prepare_frame(camera_id: str, payload: bytes) -> object:
+    image = decode_jpeg(payload)
+    if camera_id != "turtle-cam-door":
+        image = draw_enclosure_overlay(image)
+        return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return cv2.rotate(image, cv2.ROTATE_180)
 
 
 def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
@@ -65,13 +73,44 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
-        image = cv2.rotate(draw_enclosure_overlay(decode_jpeg(payload)), cv2.ROTATE_90_COUNTERCLOCKWISE)
-        image = crop_preview(image)
-        image = cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
-        success, rotated_payload = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        image = _prepare_frame(camera_id, payload)
+        success, rotated_payload = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode latest frame")
         return Response(content=rotated_payload.tobytes(), media_type="image/jpeg")
+
+    @app.get("/api/frames/{camera_id}/latest/square", response_class=Response)
+    @app.get("/api/frames/{camera_id}/latest/square.jpg", response_class=Response)
+    def latest_frame_square(camera_id: str) -> Response:
+        payload = latest_frames.get(camera_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="No frame received")
+        image = _prepare_frame(camera_id, payload)
+        height, width = image.shape[:2]
+        size = 500
+        scale = min(size / width, size / height)
+        image = cv2.resize(image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA)
+        height, width = image.shape[:2]
+        background_scale = max(size / width, size / height)
+        background = cv2.resize(
+            image,
+            (round(width * background_scale), round(height * background_scale)),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        background = cv2.GaussianBlur(background, (0, 0), 18)
+        background_height, background_width = background.shape[:2]
+        background = background[
+            (background_height - size) // 2 : (background_height - size) // 2 + size,
+            (background_width - size) // 2 : (background_width - size) // 2 + size,
+        ]
+        x_offset = (size - width) // 2
+        y_offset = (size - height) // 2
+        background[y_offset : y_offset + height, x_offset : x_offset + width] = image
+        square = background
+        success, square_payload = cv2.imencode(".jpg", square)
+        if not success:
+            raise HTTPException(status_code=500, detail="Could not encode square latest frame")
+        return Response(content=square_payload.tobytes(), media_type="image/jpeg")
 
     @app.get("/api/position", response_model=Position)
     def current_position() -> Position:

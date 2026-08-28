@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import cv2
+import numpy as np
 from fastapi.testclient import TestClient
 
 from turtle_tracker.app import create_app
@@ -53,14 +55,41 @@ def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
     latest = client.get("/api/frames/outdoor/latest")
     assert latest.status_code == 200
     assert latest.headers["content-type"] == "image/jpeg"
-    assert decode_jpeg(latest.content).shape[:2] == (640, 346)
+    assert decode_jpeg(latest.content).shape[:2] == (640, 360)
 
 
-def test_latest_frame_contains_enclosure_overlay(tmp_path: Path):
+def test_door_latest_frame_is_vga_without_overlay(tmp_path: Path):
     client = make_client(tmp_path)
+    image = np.full((480, 640, 3), (40, 80, 160), dtype=np.uint8)
+    success, encoded = cv2.imencode(".jpg", image)
+    assert success
 
+    response = client.post("/api/frames/turtle-cam-door", content=encoded.tobytes())
+
+    assert response.status_code == 200
+    latest = decode_jpeg(client.get("/api/frames/turtle-cam-door/latest").content)
+    assert latest.shape[:2] == (480, 640)
+    assert np.mean(np.abs(latest.astype(np.int16) - np.rot90(image, 2).astype(np.int16))) < 3
+
+
+def test_latest_frame_square_keeps_full_image(tmp_path: Path):
+    client = make_client(tmp_path)
     client.post("/api/frames/outdoor", content=mock_jpeg(), headers={"content-type": "image/jpeg"})
 
-    image = decode_jpeg(client.get("/api/frames/outdoor/latest").content)
-    turquoise_pixels = (image[:, :, 0] > 130) & (image[:, :, 1] > 130) & (image[:, :, 2] < 130)
-    assert turquoise_pixels.sum() > 100
+    square = client.get("/api/frames/outdoor/latest/square")
+
+    assert square.status_code == 200
+    assert square.headers["content-type"] == "image/jpeg"
+    image = decode_jpeg(square.content)
+    assert image.shape[:2] == (500, 500)
+
+
+def test_latest_frame_square_jpg_alias_is_jpeg(tmp_path: Path):
+    client = make_client(tmp_path)
+    client.post("/api/frames/outdoor", content=mock_jpeg(), headers={"content-type": "image/jpeg"})
+
+    response = client.get("/api/frames/outdoor/latest/square.jpg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert decode_jpeg(response.content).shape[:2] == (500, 500)
