@@ -21,7 +21,8 @@ def _prepare_frame(camera_id: str, payload: bytes) -> object:
     image = decode_jpeg(payload)
     if camera_id != "turtle-cam-door":
         image = draw_enclosure_overlay(image)
-    return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return cv2.rotate(image, cv2.ROTATE_180)
 
 
 def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
