@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 import cv2
+import numpy as np
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 
 from .calibration import HomographyCalibration
@@ -22,10 +24,22 @@ from .vision import (
 )
 
 DOOR_CAMERA_ID = "turtle-cam-door"
+MOTION_CROPS_DIR = Path("data/motion_crops")
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _save_motion_crop(image: np.ndarray, detection, timestamp: datetime, camera_id: str) -> None:
+    """Save a crop of detected motion for later training data labeling."""
+    MOTION_CROPS_DIR.mkdir(parents=True, exist_ok=True)
+    crop = image[detection.y_min : detection.y_max, detection.x_min : detection.x_max]
+    if crop.size > 0:
+        filename = MOTION_CROPS_DIR / f"{timestamp.isoformat()}_{camera_id}.jpg"
+        success, encoded = cv2.imencode(".jpg", crop)
+        if success:
+            filename.write_bytes(encoded.tobytes())
 
 
 def _prepare_frame(camera_id: str, payload: bytes) -> object:
@@ -81,6 +95,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if detection is None or detection.confidence < settings.min_confidence:
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
+        _save_motion_crop(image, detection, timestamp, camera_id)
         if camera_id == DOOR_CAMERA_ID:
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
             crossing = door_tracker.update(side, timestamp)
@@ -102,6 +117,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             confidence=detection.confidence,
         )
         database.insert_position(timestamp.isoformat(), position.x, position.y, position.inside_house, position.speed, position.confidence)
+        mqtt_publisher.publish_position(position.x, position.y, position.speed, position.confidence)
         return IngestResponse(accepted=True, position=position)
 
     @app.get("/health")

@@ -1,3 +1,4 @@
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,3 +37,10 @@ class MqttPublisher:
         if self._client is None:
             return
         self._client.publish(f"{self.topic_prefix}/event", event)
+
+    def publish_position(self, x: float, y: float, speed: float, confidence: float) -> None:
+        """Publish turtle position coordinates and motion metrics."""
+        if self._client is None:
+            return
+        payload = json.dumps({"x": x, "y": y, "speed": speed, "confidence": confidence})
+        self._client.publish(f"{self.topic_prefix}/position", payload, retain=True)

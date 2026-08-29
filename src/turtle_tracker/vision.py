@@ -9,6 +9,10 @@ class Detection:
     x_pixel: float
     y_pixel: float
     confidence: float
+    x_min: int = 0  # Bounding box for motion crop
+    y_min: int = 0
+    x_max: int = 0
+    y_max: int = 0
 
 
 ENCLOSURE_POLYGON_SOURCE = np.array(
@@ -147,7 +151,12 @@ class MotionDetector:
         moments = cv2.moments(contour)
         if moments["m00"] == 0:
             return None
-        return Detection(moments["m10"] / moments["m00"], moments["m01"] / moments["m00"], min(1.0, area / 5000))
+        x_center = moments["m10"] / moments["m00"]
+        y_center = moments["m01"] / moments["m00"]
+        x_min, y_min, w, h = cv2.boundingRect(contour)
+        x_max = min(x_min + w, image.shape[1])
+        y_max = min(y_min + h, image.shape[0])
+        return Detection(x_center, y_center, min(1.0, area / 5000), x_min, y_min, x_max, y_max)
 
 
 def decode_jpeg(payload: bytes) -> np.ndarray:
