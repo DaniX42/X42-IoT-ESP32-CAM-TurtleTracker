@@ -2,6 +2,14 @@
 
 A camera-based position tracking service for one untagged tortoise in a 7 m x 2.5 m outdoor enclosure. The system combines an ESP32-CAM, a Python computer-vision backend, SQLite storage, and MQTT/Home Assistant integration.
 
+## Example images
+
+| `turtle-cam-outdoor` (enclosure) | `turtle-cam-door` (house entrance) |
+| --- | --- |
+| ![Outdoor enclosure camera with calibration polygon overlay](docs/README/turtle-cam-outdoor.png) | ![Door camera with door-zone calibration lines](docs/README/turtle-cam-door.png) |
+
+The dashed turquoise line on the outdoor image is the `ENCLOSURE_POLYGON_SOURCE` calibration overlay (`vision.draw_enclosure_overlay`); it is only drawn on `/api/frames/{camera_id}/latest` for non-door cameras. The dashed lines on the door image are the door-zone calibration lines (`vision.draw_door_calibration_overlay`), served separately at `/api/frames/turtle-cam-door/calibration` so the live door feed itself stays overlay-free.
+
 ## How it works
 
 ```text
@@ -21,6 +29,15 @@ ESP32-CAM -> HTTP JPEG upload -> FastAPI -> OpenCV motion detection
 7. The backend returns the accepted position. The ESP32-CAM publishes accepted results to MQTT, where Home Assistant discovery exposes sensors for X, Y, last seen, confidence, and whether the tortoise is inside the house.
 
 The detector is intentionally a baseline. It can later be replaced by a tortoise classifier such as YOLO without changing the image-ingestion or persistence contracts.
+
+### Motion and position detection in detail
+
+The same `MotionDetector` (MOG2 background subtraction) runs for every camera, but the two cameras feed two different pipelines:
+
+- **`turtle-cam-outdoor` (enclosure position tracking)**: The detected contour centroid is converted from pixels to real-world metres via `HomographyCalibration` (`calibration.py`), then handed to `PositionTracker` (`tracking.py`), which derives speed from the previous position and timestamp. The result becomes a `Position` row (`x`, `y`, `speed`, `confidence`, `inside_house`) available at `/api/position`, `/api/history`, `/api/heatmap`, and rendered on the schematic map at `/api/position/map`.
+- **`turtle-cam-door` (in/out detection)**: The same detector's pixel coordinates are instead classified with `vision.classify_door_detection` against the door corridor and threshold line (`DOOR_ZONE_LEFT_SOURCE`/`DOOR_ZONE_RIGHT_SOURCE`/`DOOR_THRESHOLD_SOURCE`). `tracking.DoorCrossingTracker` compares the current side (`inside`/`outside`) to the previous one; a side change is an `entered_house` or `left_house` crossing. Crossings are written to the `events` table and update the live `inside_house` state used by subsequent enclosure positions and the `@Home` marker on `/api/position/map`.
+
+Because motion detection alone cannot distinguish a tortoise from other movement (shadows, plants, wildlife), both pipelines only accept detections above `MIN_CONFIDENCE`, and the door pipeline additionally discards anything outside the calibrated door corridor polygon.
 
 ## Frameworks and libraries
 
