@@ -24,6 +24,12 @@ def scaled_enclosure_polygon(width: int, height: int) -> np.ndarray:
     return np.rint(center + (polygon - center) * 1.01).astype(np.int32)
 
 
+def in_enclosure_polygon(x_pixel: float, y_pixel: float, width: int, height: int) -> bool:
+    """Reject motion detected outside the calibrated enclosure area (e.g. plants, shadows outside the fence)."""
+    polygon = scaled_enclosure_polygon(width, height)
+    return cv2.pointPolygonTest(polygon, (x_pixel, y_pixel), False) >= 0
+
+
 def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
     overlay = image.copy()
     polygon = scaled_enclosure_polygon(image.shape[1], image.shape[0])
@@ -44,42 +50,41 @@ def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
     return overlay
 
 
-# Door camera door-zone geometry, defined in the raw (unrotated) VGA sensor
-# orientation used by the detector, matching the 3 reference lines marked on
-# the mounting photo (left frame edge, right frame edge, threshold).
-# Adjust these to match the actual mounted camera; see docs/calibration.md.
-DOOR_ZONE_LEFT_SOURCE = np.array([[220, 60], [190, 300]], dtype=np.float32)
-DOOR_ZONE_RIGHT_SOURCE = np.array([[420, 60], [450, 300]], dtype=np.float32)
-DOOR_THRESHOLD_SOURCE = np.array([[150, 190], [470, 190]], dtype=np.float32)
+# Door camera entrance zone, defined as fractions (0..1) of the raw (unrotated)
+# frame so it scales to the camera's actual resolution (e.g. 1600x1200 UXGA),
+# not a fixed pixel size. Two lines mark the entrance gap: DOOR_FAR_LINE is
+# closer to the house side (under the ledge), DOOR_NEAR_LINE is the garden
+# side. Adjust these to match the mounted camera; see docs/calibration.md.
+DOOR_NEAR_LINE_FRACTION = np.array([[0.03, 0.34], [0.95, 0.30]], dtype=np.float32)
+DOOR_FAR_LINE_FRACTION = np.array([[0.03, 0.16], [0.95, 0.13]], dtype=np.float32)
 
 
-def door_corridor_polygon() -> np.ndarray:
-    return np.array(
-        [DOOR_ZONE_LEFT_SOURCE[0], DOOR_ZONE_RIGHT_SOURCE[0], DOOR_ZONE_RIGHT_SOURCE[1], DOOR_ZONE_LEFT_SOURCE[1]],
-        dtype=np.float32,
+def _scale_fraction_line(line: np.ndarray, width: int, height: int) -> np.ndarray:
+    return line * np.array([width, height], dtype=np.float32)
+
+
+def door_entrance_lines(width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
+    return (
+        _scale_fraction_line(DOOR_NEAR_LINE_FRACTION, width, height),
+        _scale_fraction_line(DOOR_FAR_LINE_FRACTION, width, height),
     )
 
 
-def _line_side(x_pixel: float, y_pixel: float, line: np.ndarray) -> float:
-    direction = line[1] - line[0]
-    to_point = np.array([x_pixel, y_pixel], dtype=np.float32) - line[0]
-    return float(direction[0] * to_point[1] - direction[1] * to_point[0])
-
-
-def classify_door_detection(x_pixel: float, y_pixel: float) -> str | None:
-    """Return "inside", "outside", or None if the point is outside the door corridor."""
-    polygon = door_corridor_polygon()
-    if cv2.pointPolygonTest(polygon, (x_pixel, y_pixel), False) < 0:
-        return None
-    return "inside" if _line_side(x_pixel, y_pixel, DOOR_THRESHOLD_SOURCE) > 0 else "outside"
+def classify_door_detection(x_pixel: float, y_pixel: float, width: int, height: int) -> str:
+    """Return "inside" (past the far/house-side line) or "outside" (garden side)."""
+    near_line, far_line = door_entrance_lines(width, height)
+    threshold_y = (float(near_line[:, 1].mean()) + float(far_line[:, 1].mean())) / 2
+    return "inside" if y_pixel < threshold_y else "outside"
 
 
 def draw_door_calibration_overlay(image: np.ndarray) -> np.ndarray:
-    """Draw the door-zone lines for calibration only; never used on the live door feed."""
+    """Draw the door entrance lines for calibration only; never used on the live door feed."""
     overlay = image.copy()
+    height, width = image.shape[:2]
+    near_line, far_line = door_entrance_lines(width, height)
     yellow = (0, 215, 255)
     magenta = (255, 0, 255)
-    for line, color in ((DOOR_ZONE_LEFT_SOURCE, yellow), (DOOR_ZONE_RIGHT_SOURCE, yellow), (DOOR_THRESHOLD_SOURCE, magenta)):
+    for line, color in ((near_line, yellow), (far_line, magenta)):
         start, end = line.astype(np.int32)
         cv2.line(overlay, tuple(start), tuple(end), color, 2)
     return overlay

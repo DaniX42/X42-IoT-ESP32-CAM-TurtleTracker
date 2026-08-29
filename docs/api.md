@@ -43,11 +43,11 @@ The service exposes OpenAPI documentation at `/docs`.
 
 ## Door calibration frame
 
-`GET /api/frames/turtle-cam-door/calibration` returns the latest door-camera JPEG with the door-zone lines (left/right corridor edges and threshold) drawn on top, for calibrating `vision.DOOR_ZONE_LEFT_SOURCE` / `DOOR_ZONE_RIGHT_SOURCE` / `DOOR_THRESHOLD_SOURCE`. It is calibration-only and never served on `/latest`.
+`GET /api/frames/turtle-cam-door/calibration` returns the latest door-camera JPEG with the door entrance lines (near/far edges of the entrance gap) drawn on top, for calibrating `vision.DOOR_NEAR_LINE_FRACTION` / `DOOR_FAR_LINE_FRACTION`. It is calibration-only and never served on `/latest`.
 
 ## Door crossing detection
 
-Motion detected on the `turtle-cam-door` camera is classified as `inside` or `outside` the door threshold. A side change writes an `entered_house` or `left_house` row to the `events` table and updates `inside_house` on the next enclosure position.
+Motion detected on the `turtle-cam-door` camera is classified as `inside` or `outside` relative to the midpoint between the two entrance lines. A side change writes an `entered_house` or `left_house` row to the `events` table and updates `inside_house` on the next enclosure position.
 
 ## MQTT
 

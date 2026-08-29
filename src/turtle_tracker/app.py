@@ -18,6 +18,7 @@ from .vision import (
     draw_door_calibration_overlay,
     draw_enclosure_overlay,
     draw_position_map,
+    in_enclosure_polygon,
 )
 
 DOOR_CAMERA_ID = "turtle-cam-door"
@@ -80,7 +81,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
         if camera_id == DOOR_CAMERA_ID:
-            side = classify_door_detection(detection.x_pixel, detection.y_pixel)
+            side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
             crossing = door_tracker.update(side, timestamp)
             if crossing is not None:
                 house_state["inside_house"] = crossing.event == "entered_house"
@@ -88,6 +89,8 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
                 mqtt_publisher.publish_event(crossing.event)
                 mqtt_publisher.publish_state(house_state["inside_house"])
             return IngestResponse(accepted=True)
+        if not in_enclosure_polygon(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0]):
+            return IngestResponse(accepted=False, reason="Motion detected outside the enclosure")
         track = tracker.update(detection, timestamp)
         position = Position(
             timestamp=timestamp,

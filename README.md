@@ -35,9 +35,9 @@ The detector is intentionally a baseline. It can later be replaced by a tortoise
 The same `MotionDetector` (MOG2 background subtraction) runs for every camera, but the two cameras feed two different pipelines:
 
 - **`turtle-cam-outdoor` (enclosure position tracking)**: The detected contour centroid is converted from pixels to real-world metres via `HomographyCalibration` (`calibration.py`), then handed to `PositionTracker` (`tracking.py`), which derives speed from the previous position and timestamp. The result becomes a `Position` row (`x`, `y`, `speed`, `confidence`, `inside_house`) available at `/api/position`, `/api/history`, `/api/heatmap`, and rendered on the schematic map at `/api/position/map`.
-- **`turtle-cam-door` (in/out detection)**: The same detector's pixel coordinates are instead classified with `vision.classify_door_detection` against the door corridor and threshold line (`DOOR_ZONE_LEFT_SOURCE`/`DOOR_ZONE_RIGHT_SOURCE`/`DOOR_THRESHOLD_SOURCE`). `tracking.DoorCrossingTracker` compares the current side (`inside`/`outside`) to the previous one; a side change is an `entered_house` or `left_house` crossing. Crossings are written to the `events` table and update the live `inside_house` state used by subsequent enclosure positions and the `@Home` marker on `/api/position/map`.
+- **`turtle-cam-door` (in/out detection)**: The same detector's pixel coordinates are instead classified with `vision.classify_door_detection` against the entrance gap's near/far lines (`DOOR_NEAR_LINE_FRACTION`/`DOOR_FAR_LINE_FRACTION`, defined as resolution-independent fractions of the frame). `tracking.DoorCrossingTracker` compares the current side (`inside`/`outside`) to the previous one; a side change is an `entered_house` or `left_house` crossing. Crossings are written to the `events` table and update the live `inside_house` state used by subsequent enclosure positions and the `@Home` marker on `/api/position/map`.
 
-Because motion detection alone cannot distinguish a tortoise from other movement (shadows, plants, wildlife), both pipelines only accept detections above `MIN_CONFIDENCE`, and the door pipeline additionally discards anything outside the calibrated door corridor polygon.
+Because motion detection alone cannot distinguish a tortoise from other movement (shadows, plants, wildlife), both pipelines only accept detections above `MIN_CONFIDENCE`, and the enclosure pipeline additionally discards anything outside the calibrated enclosure polygon.
 
 ## Frameworks and libraries
 
@@ -74,8 +74,6 @@ The MOG2 detector is suitable as a development baseline, but it is sensitive to 
 The firmware is built for the `esp32cam` board with the Arduino framework. It exposes a local `/health` endpoint, supports OTA updates, captures JPEG frames, and posts them directly to the backend. The firmware does not store images permanently.
 
 MQTT topics are based on `turtle_tracker/{device_name}`. The device publishes availability and state messages and registers Home Assistant MQTT discovery entities after connecting to the broker.
-
-## Quick start
 
 ## Quick start
 

@@ -3,20 +3,34 @@ from datetime import datetime, timezone
 import numpy as np
 
 from turtle_tracker.tracking import DoorCrossingTracker
-from turtle_tracker.vision import DOOR_THRESHOLD_SOURCE, classify_door_detection, draw_position_map
+from turtle_tracker.vision import (
+    ENCLOSURE_POLYGON_SOURCE,
+    classify_door_detection,
+    door_entrance_lines,
+    draw_position_map,
+    in_enclosure_polygon,
+)
 
 
 def test_classify_door_detection_sides():
-    outside_y = DOOR_THRESHOLD_SOURCE[0][1] - 40
-    inside_y = DOOR_THRESHOLD_SOURCE[0][1] + 40
-    center_x = 300
+    width, height = 1600, 1200
+    near_line, far_line = door_entrance_lines(width, height)
+    threshold_y = (near_line[:, 1].mean() + far_line[:, 1].mean()) / 2
+    center_x = width / 2
 
-    assert classify_door_detection(center_x, outside_y) == "outside"
-    assert classify_door_detection(center_x, inside_y) == "inside"
+    assert classify_door_detection(center_x, threshold_y + 40, width, height) == "outside"
+    assert classify_door_detection(center_x, threshold_y - 40, width, height) == "inside"
 
 
-def test_classify_door_detection_ignores_points_outside_corridor():
-    assert classify_door_detection(10, 10) is None
+def test_in_enclosure_polygon_accepts_center_and_rejects_far_outside():
+    center_x, center_y = ENCLOSURE_POLYGON_SOURCE.mean(axis=0)
+
+    assert in_enclosure_polygon(center_x, center_y, 640, 480) is True
+    assert in_enclosure_polygon(5, 5, 640, 480) is False
+
+
+def test_classify_door_detection_scales_with_resolution():
+    assert classify_door_detection(800, 200, 1600, 1200) == classify_door_detection(320, 80, 640, 480)
 
 
 def test_door_crossing_tracker_reports_entered_then_left():

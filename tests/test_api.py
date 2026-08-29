@@ -45,6 +45,24 @@ def test_accepts_raw_jpeg_payload_from_camera(tmp_path: Path):
     assert response.json()["accepted"] is True
 
 
+def test_rejects_motion_outside_enclosure_polygon(tmp_path: Path):
+    client = make_client(tmp_path)
+    background = np.zeros((360, 640, 3), dtype=np.uint8)
+    background[:] = (55, 105, 55)
+    cv2.rectangle(background, (8, 8), (632, 352), (180, 180, 180), 2)
+    ok, background_jpeg = cv2.imencode(".jpg", background)
+    assert ok
+    for _ in range(3):
+        client.post("/api/frames/outdoor", content=background_jpeg.tobytes(), headers={"content-type": "image/jpeg"})
+
+    response = client.post("/api/frames/outdoor", content=mock_jpeg(x=10, y=10), headers={"content-type": "image/jpeg"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accepted"] is False
+    assert body["reason"] == "Motion detected outside the enclosure"
+
+
 def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
     client = make_client(tmp_path)
     payload = mock_jpeg()
