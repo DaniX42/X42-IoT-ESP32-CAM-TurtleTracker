@@ -41,6 +41,26 @@ pio run -t upload --upload-port turtle-cam-outdoor.local
 
 Keep the OTA password local and set a strong value in `secrets.ini`.
 
+## Two-camera deployment notes
+
+The project currently uses two AI Thinker ESP32-CAM devices:
+
+- `turtle-cam-outdoor`: the enclosure camera. It uses the default firmware profile and captures VGA JPEG frames.
+- `turtle-cam-door`: the door/house camera. It uses the same backend contract but enables `TT_DOOR_CAMERA`, which changes the sensor to SVGA and applies the door-camera tuning (higher JPEG quality, brightness `2`, contrast `1`, saturation `0`, and automatic gain, exposure, and white balance).
+
+Both cameras upload directly to the same backend at `POST /api/frames/{camera_id}`. The device name is the `camera_id`, MQTT topic suffix, OTA hostname, and the identifier used by the latest-frame endpoint. Keep the names distinct so the backend and Home Assistant can distinguish the streams:
+
+```text
+http://<backend-host>:8000/api/frames/turtle-cam-outdoor/latest
+http://<backend-host>:8000/api/frames/turtle-cam-door/latest
+```
+
+The checked-in PlatformIO configuration has one `ai_thinker` environment. To build the door variant, add `-DTT_DOOR_CAMERA` to the local build flags and set `TT_DEVICE_NAME` to `turtle-cam-door`; do not commit local credentials from `secrets.ini` or generated secrets. The outdoor build must omit `TT_DOOR_CAMERA` and use `turtle-cam-outdoor`.
+
+The backend must listen on `0.0.0.0:8000`, and the camera configuration must point to a reachable LAN address rather than `localhost`. The current development setup uses mDNS names for OTA where available (`turtle-cam-outdoor.local` and `turtle-cam-door.local`); use fixed IP addresses if multicast discovery is unreliable. After the initial USB flash, OTA uses UDP port `3232`; frame uploads use TCP port `8000`.
+
+When diagnosing a camera, check its `/health` endpoint first, then query its latest-frame endpoint. A `404` from the latest-frame endpoint means that no valid frame from that camera has reached the backend since startup, not necessarily that the camera is offline.
+
 ## Network migration to Proxmox
 
 When the backend moves into its own Proxmox container, change only `api_url` to the container's fixed LAN address, for example `http://192.168.1.50:8000`, then deploy the new firmware once over OTA. The container needs inbound TCP 8000 from the camera VLAN and outbound access to the MQTT broker. No USB access is required after the initial flash.

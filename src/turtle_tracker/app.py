@@ -9,8 +9,16 @@ from .config import Settings, get_settings
 from .db import Database, row_to_dict
 from .models import HeatmapPoint, IngestResponse, Position
 from .mock import mock_jpeg
-from .tracking import PositionTracker
-from .vision import MotionDetector, decode_jpeg, draw_enclosure_overlay
+from .tracking import DoorCrossingTracker, PositionTracker
+from .vision import (
+    MotionDetector,
+    classify_door_detection,
+    decode_jpeg,
+    draw_door_calibration_overlay,
+    draw_enclosure_overlay,
+)
+
+DOOR_CAMERA_ID = "turtle-cam-door"
 
 
 def _utc_now() -> datetime:
@@ -19,7 +27,7 @@ def _utc_now() -> datetime:
 
 def _prepare_frame(camera_id: str, payload: bytes) -> object:
     image = decode_jpeg(payload)
-    if camera_id != "turtle-cam-door":
+    if camera_id != DOOR_CAMERA_ID:
         image = draw_enclosure_overlay(image)
         return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
     return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
@@ -36,6 +44,8 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     )
     detector = MotionDetector()
     tracker = PositionTracker(calibration)
+    door_tracker = DoorCrossingTracker()
+    house_state = {"inside_house": False}
     latest_frames: dict[str, bytes] = {}
 
     @asynccontextmanager
@@ -59,8 +69,22 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if detection is None or detection.confidence < settings.min_confidence:
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
+        if camera_id == DOOR_CAMERA_ID:
+            side = classify_door_detection(detection.x_pixel, detection.y_pixel)
+            crossing = door_tracker.update(side, timestamp)
+            if crossing is not None:
+                house_state["inside_house"] = crossing.event == "entered_house"
+                database.insert_event(timestamp.isoformat(), crossing.event)
+            return IngestResponse(accepted=True)
         track = tracker.update(detection, timestamp)
-        position = Position(timestamp=timestamp, x=track.x, y=track.y, speed=track.speed, confidence=detection.confidence)
+        position = Position(
+            timestamp=timestamp,
+            x=track.x,
+            y=track.y,
+            inside_house=house_state["inside_house"],
+            speed=track.speed,
+            confidence=detection.confidence,
+        )
         database.insert_position(timestamp.isoformat(), position.x, position.y, position.inside_house, position.speed, position.confidence)
         return IngestResponse(accepted=True, position=position)
 
@@ -78,6 +102,18 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode latest frame")
         return Response(content=rotated_payload.tobytes(), media_type="image/jpeg")
+
+    @app.get("/api/frames/turtle-cam-door/calibration", response_class=Response)
+    def door_calibration_frame() -> Response:
+        payload = latest_frames.get(DOOR_CAMERA_ID)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="No frame received")
+        image = draw_door_calibration_overlay(decode_jpeg(payload))
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        success, encoded = cv2.imencode(".jpg", image)
+        if not success:
+            raise HTTPException(status_code=500, detail="Could not encode calibration frame")
+        return Response(content=encoded.tobytes(), media_type="image/jpeg")
 
     @app.get("/api/frames/{camera_id}/latest/square", response_class=Response)
     @app.get("/api/frames/{camera_id}/latest/square.jpg", response_class=Response)

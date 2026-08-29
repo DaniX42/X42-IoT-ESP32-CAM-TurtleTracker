@@ -44,4 +44,6 @@ string_values = {
 lines = ["#pragma once", "#define CORE_DEBUG_LEVEL 1", "#define CAMERA_MODEL_AI_THINKER"]
 lines.extend(f"#define {name} {json.dumps(value)}" for name, value in string_values.items())
 lines.append(f"#define TT_MQTT_PORT {int(values['custom_mqtt_port'])}")
+if values["custom_device_name"] == "turtle-cam-door":
+    lines.append("#define TT_DOOR_CAMERA")
 output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

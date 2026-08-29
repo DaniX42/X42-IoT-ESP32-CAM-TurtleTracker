@@ -15,7 +15,6 @@ ENCLOSURE_POLYGON_SOURCE = np.array(
     [[326, 200], [336, 244], [272, 309], [148, 263], [102, 256], [88, 219], [65, 176], [203, 121]],
     dtype=np.float32,
 )
-PREVIEW_CROP_DISPLAY = (100, 280, 330, 600)
 
 
 def scaled_enclosure_polygon(width: int, height: int) -> np.ndarray:
@@ -23,12 +22,6 @@ def scaled_enclosure_polygon(width: int, height: int) -> np.ndarray:
     polygon = ENCLOSURE_POLYGON_SOURCE * scale
     center = polygon.mean(axis=0)
     return np.rint(center + (polygon - center) * 1.01).astype(np.int32)
-
-
-def enclosure_mask(image: np.ndarray) -> np.ndarray:
-    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    cv2.fillPoly(mask, [scaled_enclosure_polygon(image.shape[1], image.shape[0])], 255)
-    return mask
 
 
 def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
@@ -41,25 +34,55 @@ def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
         if edge_length == 0:
             continue
         direction = edge / edge_length
-        dash_length = 14.0
-        gap_length = 10.0
         distance = 0.0
         while distance < edge_length:
-            dash_end = min(distance + dash_length, edge_length)
+            dash_end = min(distance + 14.0, edge_length)
             dash_start_point = np.rint(start + direction * distance).astype(np.int32)
             dash_end_point = np.rint(start + direction * dash_end).astype(np.int32)
             cv2.line(overlay, tuple(dash_start_point), tuple(dash_end_point), turquoise, 2)
-            distance += dash_length + gap_length
+            distance += 24.0
     return overlay
 
 
-def crop_preview(image: np.ndarray) -> np.ndarray:
-    x_start, y_start, x_end, y_end = PREVIEW_CROP_DISPLAY
-    x_scale = image.shape[1] / 480
-    y_scale = image.shape[0] / 640
-    x_start, x_end = np.rint(np.array([x_start, x_end]) * x_scale).astype(int)
-    y_start, y_end = np.rint(np.array([y_start, y_end]) * y_scale).astype(int)
-    return image[max(0, y_start):min(image.shape[0], y_end), max(0, x_start):min(image.shape[1], x_end)]
+# Door camera door-zone geometry, defined in the raw (unrotated) VGA sensor
+# orientation used by the detector, matching the 3 reference lines marked on
+# the mounting photo (left frame edge, right frame edge, threshold).
+# Adjust these to match the actual mounted camera; see docs/calibration.md.
+DOOR_ZONE_LEFT_SOURCE = np.array([[220, 60], [190, 300]], dtype=np.float32)
+DOOR_ZONE_RIGHT_SOURCE = np.array([[420, 60], [450, 300]], dtype=np.float32)
+DOOR_THRESHOLD_SOURCE = np.array([[150, 190], [470, 190]], dtype=np.float32)
+
+
+def door_corridor_polygon() -> np.ndarray:
+    return np.array(
+        [DOOR_ZONE_LEFT_SOURCE[0], DOOR_ZONE_RIGHT_SOURCE[0], DOOR_ZONE_RIGHT_SOURCE[1], DOOR_ZONE_LEFT_SOURCE[1]],
+        dtype=np.float32,
+    )
+
+
+def _line_side(x_pixel: float, y_pixel: float, line: np.ndarray) -> float:
+    direction = line[1] - line[0]
+    to_point = np.array([x_pixel, y_pixel], dtype=np.float32) - line[0]
+    return float(direction[0] * to_point[1] - direction[1] * to_point[0])
+
+
+def classify_door_detection(x_pixel: float, y_pixel: float) -> str | None:
+    """Return "inside", "outside", or None if the point is outside the door corridor."""
+    polygon = door_corridor_polygon()
+    if cv2.pointPolygonTest(polygon, (x_pixel, y_pixel), False) < 0:
+        return None
+    return "inside" if _line_side(x_pixel, y_pixel, DOOR_THRESHOLD_SOURCE) > 0 else "outside"
+
+
+def draw_door_calibration_overlay(image: np.ndarray) -> np.ndarray:
+    """Draw the door-zone lines for calibration only; never used on the live door feed."""
+    overlay = image.copy()
+    yellow = (0, 215, 255)
+    magenta = (255, 0, 255)
+    for line, color in ((DOOR_ZONE_LEFT_SOURCE, yellow), (DOOR_ZONE_RIGHT_SOURCE, yellow), (DOOR_THRESHOLD_SOURCE, magenta)):
+        start, end = line.astype(np.int32)
+        cv2.line(overlay, tuple(start), tuple(end), color, 2)
+    return overlay
 
 
 class MotionDetector:
@@ -70,7 +93,6 @@ class MotionDetector:
 
     def detect(self, image: np.ndarray) -> Detection | None:
         mask = self._background.apply(image)
-        mask = cv2.bitwise_and(mask, enclosure_mask(image))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
