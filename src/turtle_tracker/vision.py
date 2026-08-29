@@ -51,16 +51,11 @@ def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
 
 
 # Door camera entrance zone, defined as fractions (0..1) of the raw (unrotated)
-# frame so it scales to the camera's actual resolution. The door sits at the
-# upper part of the image. We use the 1/3-2/3 split as the house boundary:
-# - upper third: outside/garden
-# - middle third: buffer zone near the door
-# - lower third: inside the house
-# This matches the real behaviour: the turtle is considered inside once it is
-# in the lower third, and leaving the house means moving back upward through the
-# middle third and eventually disappearing above the door.
-DOOR_NEAR_LINE_FRACTION = np.array([[0.02, 0.32], [0.98, 0.32]], dtype=np.float32)
-DOOR_FAR_LINE_FRACTION = np.array([[0.02, 0.66], [0.98, 0.66]], dtype=np.float32)
+# frame so it scales to the camera's actual resolution. The actual door opening
+# is vertical in the image, so the calibration lines must be vertical and the
+# buffer zone remains the middle third across the width of the image.
+DOOR_NEAR_LINE_FRACTION = np.array([[0.32, 0.02], [0.32, 0.98]], dtype=np.float32)
+DOOR_FAR_LINE_FRACTION = np.array([[0.66, 0.02], [0.66, 0.98]], dtype=np.float32)
 
 
 def _scale_fraction_line(line: np.ndarray, width: int, height: int) -> np.ndarray:

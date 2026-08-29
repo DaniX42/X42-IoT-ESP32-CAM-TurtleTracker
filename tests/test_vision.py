@@ -32,6 +32,14 @@ def test_classify_door_detection_scales_with_resolution():
     assert classify_door_detection(800, 200, 1600, 1200) == classify_door_detection(320, 80, 640, 480)
 
 
+def test_door_entrance_lines_are_vertical():
+    near_line, far_line = door_entrance_lines(1600, 1200)
+    assert np.allclose(near_line[:, 0], 0.32 * 1600)
+    assert np.allclose(far_line[:, 0], 0.66 * 1600)
+    assert np.allclose(near_line[:, 1], [24, 1176])
+    assert np.allclose(far_line[:, 1], [24, 1176])
+
+
 def test_door_crossing_tracker_reports_entered_then_left():
     tracker = DoorCrossingTracker()
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
