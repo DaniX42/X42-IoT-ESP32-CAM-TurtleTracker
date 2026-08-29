@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     enclosure_length_meters: float = 7.0
     enclosure_width_meters: float = 2.5
     min_confidence: float = 0.1
+    mqtt_enabled: bool = False
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_user: str | None = None
+    mqtt_password: str | None = None
+    mqtt_topic_prefix: str = "turtle_tracker/house"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -25,6 +25,10 @@ The service exposes OpenAPI documentation at `/docs`.
 
 `GET /api/heatmap?grid=0.5` returns counts grouped into square metre bins.
 
+## Position map
+
+`GET /api/position/map` returns a schematic top-down JPEG of the enclosure with the tortoise's last known position marked. While `inside_house` is currently true (from the door camera, live state), it shows an `@Home` marker instead of coordinates.
+
 ## Frame ingestion
 
 `POST /api/frames/{camera_id}` accepts a JPEG in multipart field `file`.
@@ -44,3 +48,12 @@ The service exposes OpenAPI documentation at `/docs`.
 ## Door crossing detection
 
 Motion detected on the `turtle-cam-door` camera is classified as `inside` or `outside` the door threshold. A side change writes an `entered_house` or `left_house` row to the `events` table and updates `inside_house` on the next enclosure position.
+
+## MQTT
+
+When `mqtt_enabled` is set (see `Settings` in `config.py`), house state is also published to MQTT:
+
+- `turtle_tracker/house/state` (retained): `inside` or `outside`.
+- `turtle_tracker/house/event`: `entered_house` or `left_house`, published once per crossing.
+
+The topic prefix is configurable via `mqtt_topic_prefix` (default `turtle_tracker/house`).

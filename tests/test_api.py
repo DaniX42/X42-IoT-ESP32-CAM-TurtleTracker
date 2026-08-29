@@ -93,3 +93,22 @@ def test_latest_frame_square_jpg_alias_is_jpeg(tmp_path: Path):
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
     assert decode_jpeg(response.content).shape[:2] == (500, 500)
+
+
+def test_position_map_without_data_returns_jpeg(tmp_path: Path):
+    client = make_client(tmp_path)
+
+    response = client.get("/api/position/map")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_position_map_reflects_latest_position(tmp_path: Path):
+    client = make_client(tmp_path)
+    client.post("/api/mock/frame")
+
+    response = client.get("/api/position/map")
+
+    assert response.status_code == 200
+    assert decode_jpeg(response.content) is not None

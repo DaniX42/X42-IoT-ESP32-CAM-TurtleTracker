@@ -85,6 +85,36 @@ def draw_door_calibration_overlay(image: np.ndarray) -> np.ndarray:
     return overlay
 
 
+def draw_position_map(
+    length_meters: float,
+    width_meters: float,
+    x: float | None,
+    y: float | None,
+    inside_house: bool,
+) -> np.ndarray:
+    """Schematic top-down enclosure map with the tortoise position, or "@Home" when inside the house."""
+    scale = 80.0
+    margin = 40
+    enclosure_width_px = round(length_meters * scale)
+    enclosure_height_px = round(width_meters * scale)
+    image = np.full((enclosure_height_px + margin * 2, enclosure_width_px + margin * 2, 3), (60, 130, 60), dtype=np.uint8)
+    top_left = (margin, margin)
+    bottom_right = (margin + enclosure_width_px, margin + enclosure_height_px)
+    cv2.rectangle(image, top_left, bottom_right, (255, 255, 255), 2)
+
+    if inside_house:
+        house_point = (margin, margin + enclosure_height_px // 2)
+        cv2.circle(image, house_point, 10, (0, 165, 255), -1)
+        cv2.putText(image, "@Home", (house_point[0] + 16, house_point[1] + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
+    elif x is not None and y is not None:
+        point = (margin + round(x * scale), margin + round(y * scale))
+        cv2.circle(image, point, 8, (0, 0, 255), -1)
+        cv2.putText(image, f"{x:.1f}m, {y:.1f}m", (point[0] + 12, point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+    else:
+        cv2.putText(image, "no data", (margin, margin - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+    return image
+
+
 class MotionDetector:
     """Small OpenCV baseline detector; replace with a tortoise model later."""
 

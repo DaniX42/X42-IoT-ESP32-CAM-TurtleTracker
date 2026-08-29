@@ -9,6 +9,7 @@ from .config import Settings, get_settings
 from .db import Database, row_to_dict
 from .models import HeatmapPoint, IngestResponse, Position
 from .mock import mock_jpeg
+from .mqtt import MqttPublisher
 from .tracking import DoorCrossingTracker, PositionTracker
 from .vision import (
     MotionDetector,
@@ -16,6 +17,7 @@ from .vision import (
     decode_jpeg,
     draw_door_calibration_overlay,
     draw_enclosure_overlay,
+    draw_position_map,
 )
 
 DOOR_CAMERA_ID = "turtle-cam-door"
@@ -46,6 +48,14 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     tracker = PositionTracker(calibration)
     door_tracker = DoorCrossingTracker()
     house_state = {"inside_house": False}
+    mqtt_publisher = MqttPublisher(
+        settings.mqtt_host,
+        settings.mqtt_port,
+        settings.mqtt_user,
+        settings.mqtt_password,
+        settings.mqtt_topic_prefix,
+        settings.mqtt_enabled,
+    )
     latest_frames: dict[str, bytes] = {}
 
     @asynccontextmanager
@@ -75,6 +85,8 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             if crossing is not None:
                 house_state["inside_house"] = crossing.event == "entered_house"
                 database.insert_event(timestamp.isoformat(), crossing.event)
+                mqtt_publisher.publish_event(crossing.event)
+                mqtt_publisher.publish_state(house_state["inside_house"])
             return IngestResponse(accepted=True)
         track = tracker.update(detection, timestamp)
         position = Position(
@@ -170,6 +182,17 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             key = (int(row["x"] / grid), int(row["y"] / grid))
             buckets[key] = buckets.get(key, 0) + 1
         return [HeatmapPoint(x=key[0] * grid, y=key[1] * grid, count=count) for key, count in buckets.items()]
+
+    @app.get("/api/position/map", response_class=Response)
+    def position_map() -> Response:
+        row = database.latest_position()
+        x = row["x"] if row is not None else None
+        y = row["y"] if row is not None else None
+        image = draw_position_map(settings.enclosure_length_meters, settings.enclosure_width_meters, x, y, house_state["inside_house"])
+        success, encoded = cv2.imencode(".jpg", image)
+        if not success:
+            raise HTTPException(status_code=500, detail="Could not encode position map")
+        return Response(content=encoded.tobytes(), media_type="image/jpeg")
 
     @app.post("/api/frames/{camera_id}", response_model=IngestResponse)
     async def ingest_frame(camera_id: str, request: Request, file: UploadFile | None = File(None)) -> IngestResponse:

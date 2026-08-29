@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from turtle_tracker.tracking import DoorCrossingTracker
-from turtle_tracker.vision import DOOR_THRESHOLD_SOURCE, classify_door_detection
+from turtle_tracker.vision import DOOR_THRESHOLD_SOURCE, classify_door_detection, draw_position_map
 
 
 def test_classify_door_detection_sides():
@@ -35,3 +35,14 @@ def test_door_crossing_tracker_ignores_repeated_side():
 
     tracker.update("outside", now)
     assert tracker.update("outside", now) is None
+
+
+def test_draw_position_map_shape_scales_with_enclosure_size():
+    image = draw_position_map(7.0, 2.5, 3.5, 1.25, inside_house=False)
+    assert image.shape == (2.5 * 80 + 80, 7.0 * 80 + 80, 3)
+
+
+def test_draw_position_map_inside_house_ignores_coordinates():
+    with_coords = draw_position_map(7.0, 2.5, 3.5, 1.25, inside_house=True)
+    without_coords = draw_position_map(7.0, 2.5, None, None, inside_house=True)
+    assert (with_coords == without_coords).all()

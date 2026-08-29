@@ -181,6 +181,7 @@ void setup() {
   Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
   setupOta();
   mqtt.setServer(TT_MQTT_HOST, TT_MQTT_PORT);
+  mqtt.setBufferSize(1024); // default 256 bytes is too small for HA discovery payloads; publish() fails silently otherwise
   server.on("/health", []() { server.send(200, "text/plain", "ok"); });
   server.begin();
 }
