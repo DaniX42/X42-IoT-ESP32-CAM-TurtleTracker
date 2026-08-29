@@ -52,10 +52,10 @@ def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
 
 # Door camera entrance zone, defined as fractions (0..1) of the raw (unrotated)
 # frame so it scales to the camera's actual resolution. The actual door opening
-# is vertical in the image and sits even higher, while the gap width remains
-# effectively unchanged.
-DOOR_NEAR_LINE_FRACTION = np.array([[0.34, -0.125], [0.34, 0.575]], dtype=np.float32)
-DOOR_FAR_LINE_FRACTION = np.array([[0.58, -0.125], [0.58, 0.575]], dtype=np.float32)
+# is vertical in the image. Using the current live-view orientation: shift in
+# X-coordinates moves the lines up/down visually.
+DOOR_NEAR_LINE_FRACTION = np.array([[0.24625, 0.00], [0.24625, 0.70]], dtype=np.float32)
+DOOR_FAR_LINE_FRACTION = np.array([[0.48625, 0.00], [0.48625, 0.70]], dtype=np.float32)
 
 
 def _scale_fraction_line(line: np.ndarray, width: int, height: int) -> np.ndarray:
