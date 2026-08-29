@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         settings.enclosure_width_meters,
     )
     detector = MotionDetector()
-    tracker = PositionTracker(calibration)
+    tracker = PositionTracker(calibration, settings.enclosure_length_meters, settings.enclosure_width_meters)
     door_tracker = DoorCrossingTracker()
     house_state = {"inside_house": False}
     mqtt_publisher = MqttPublisher(

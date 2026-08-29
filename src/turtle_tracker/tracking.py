@@ -14,12 +14,17 @@ class Track:
 
 
 class PositionTracker:
-    def __init__(self, calibration: HomographyCalibration):
+    def __init__(self, calibration: HomographyCalibration, enclosure_length: float = 7.0, enclosure_width: float = 2.5):
         self.calibration = calibration
+        self.enclosure_length = enclosure_length
+        self.enclosure_width = enclosure_width
         self.previous: Track | None = None
 
     def update(self, detection: Detection, timestamp: datetime) -> Track:
         x, y = self.calibration.pixel_to_meters(detection.x_pixel, detection.y_pixel)
+        # Clamp coordinates to valid enclosure range
+        x = min(max(x, 0.0), self.enclosure_length)
+        y = min(max(y, 0.0), self.enclosure_width)
         speed = 0.0
         if self.previous:
             elapsed = max((timestamp - self.previous.timestamp).total_seconds(), 0.001)
