@@ -107,9 +107,14 @@ def draw_position_map(
         cv2.circle(image, house_point, 10, (0, 165, 255), -1)
         cv2.putText(image, "@Home", (house_point[0] + 16, house_point[1] + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
     elif x is not None and y is not None:
-        point = (margin + round(x * scale), margin + round(y * scale))
-        cv2.circle(image, point, 8, (0, 0, 255), -1)
-        cv2.putText(image, f"{x:.1f}m, {y:.1f}m", (point[0] + 12, point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+        clamped_x = min(max(x, 0.0), length_meters)
+        clamped_y = min(max(y, 0.0), width_meters)
+        out_of_bounds = clamped_x != x or clamped_y != y
+        point = (margin + round(clamped_x * scale), margin + round(clamped_y * scale))
+        color = (0, 165, 255) if out_of_bounds else (0, 0, 255)
+        cv2.circle(image, point, 8, color, -1)
+        label = f"{x:.1f}m, {y:.1f}m" + (" (out of range)" if out_of_bounds else "")
+        cv2.putText(image, label, (point[0] + 12, point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
     else:
         cv2.putText(image, "no data", (margin, margin - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
     return image

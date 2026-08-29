@@ -1,0 +1,16 @@
+{
+  "camera_id": "turtle-cam-outdoor",
+  "note": "Tortoise position marked by the user with a red circle; bounding boxes are approximate, manually estimated from that circle. Coordinates are pixel [x_min, y_min, x_max, y_max] in the saved JPEG's native resolution.",
+  "images": [
+    {
+      "file": "turtle-cam-outdoor-20260829-1.jpg",
+      "image_size": [766, 1026],
+      "tortoise_bbox": [270, 715, 360, 795]
+    },
+    {
+      "file": "turtle-cam-outdoor-20260829-2.jpg",
+      "image_size": [1089, 1467],
+      "tortoise_bbox": [415, 985, 545, 1085]
+    }
+  ]
+}

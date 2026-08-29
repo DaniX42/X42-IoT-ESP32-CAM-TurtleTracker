@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import numpy as np
+
 from turtle_tracker.tracking import DoorCrossingTracker
 from turtle_tracker.vision import DOOR_THRESHOLD_SOURCE, classify_door_detection, draw_position_map
 
@@ -46,3 +48,9 @@ def test_draw_position_map_inside_house_ignores_coordinates():
     with_coords = draw_position_map(7.0, 2.5, 3.5, 1.25, inside_house=True)
     without_coords = draw_position_map(7.0, 2.5, None, None, inside_house=True)
     assert (with_coords == without_coords).all()
+
+
+def test_draw_position_map_clamps_out_of_range_position_into_view():
+    image = draw_position_map(7.0, 2.5, 15.97, 2.94, inside_house=False)
+    orange = np.array([0, 165, 255])
+    assert (image == orange).all(axis=-1).any()
