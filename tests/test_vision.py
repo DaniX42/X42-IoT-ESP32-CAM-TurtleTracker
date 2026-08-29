@@ -14,12 +14,11 @@ from turtle_tracker.vision import (
 
 def test_classify_door_detection_sides():
     width, height = 1600, 1200
-    near_line, far_line = door_entrance_lines(width, height)
-    threshold_y = (near_line[:, 1].mean() + far_line[:, 1].mean()) / 2
     center_x = width / 2
 
-    assert classify_door_detection(center_x, threshold_y + 40, width, height) == "outside"
-    assert classify_door_detection(center_x, threshold_y - 40, width, height) == "inside"
+    assert classify_door_detection(center_x, height * 0.15, width, height) == "outside"
+    assert classify_door_detection(center_x, height * 0.5, width, height) == "buffer"
+    assert classify_door_detection(center_x, height * 0.82, width, height) == "inside"
 
 
 def test_in_enclosure_polygon_accepts_center_and_rejects_far_outside():

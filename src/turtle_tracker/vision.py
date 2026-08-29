@@ -51,12 +51,16 @@ def draw_enclosure_overlay(image: np.ndarray) -> np.ndarray:
 
 
 # Door camera entrance zone, defined as fractions (0..1) of the raw (unrotated)
-# frame so it scales to the camera's actual resolution (e.g. 1600x1200 UXGA),
-# not a fixed pixel size. Two lines mark the entrance gap: DOOR_FAR_LINE is
-# closer to the house side (under the ledge), DOOR_NEAR_LINE is the garden
-# side. Adjust these to match the mounted camera; see docs/calibration.md.
-DOOR_NEAR_LINE_FRACTION = np.array([[0.03, 0.34], [0.95, 0.30]], dtype=np.float32)
-DOOR_FAR_LINE_FRACTION = np.array([[0.03, 0.16], [0.95, 0.13]], dtype=np.float32)
+# frame so it scales to the camera's actual resolution. The door sits at the
+# upper part of the image. We use the 1/3-2/3 split as the house boundary:
+# - upper third: outside/garden
+# - middle third: buffer zone near the door
+# - lower third: inside the house
+# This matches the real behaviour: the turtle is considered inside once it is
+# in the lower third, and leaving the house means moving back upward through the
+# middle third and eventually disappearing above the door.
+DOOR_NEAR_LINE_FRACTION = np.array([[0.02, 0.32], [0.98, 0.32]], dtype=np.float32)
+DOOR_FAR_LINE_FRACTION = np.array([[0.02, 0.66], [0.98, 0.66]], dtype=np.float32)
 
 
 def _scale_fraction_line(line: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -71,14 +75,18 @@ def door_entrance_lines(width: int, height: int) -> tuple[np.ndarray, np.ndarray
 
 
 def classify_door_detection(x_pixel: float, y_pixel: float, width: int, height: int) -> str:
-    """Return "inside" (past the far/house-side line) or "outside" (garden side)."""
-    near_line, far_line = door_entrance_lines(width, height)
-    threshold_y = (float(near_line[:, 1].mean()) + float(far_line[:, 1].mean())) / 2
-    return "inside" if y_pixel < threshold_y else "outside"
+    """Return the door-zone state for the current turtle position."""
+    top_third = height / 3
+    middle_third = 2 * height / 3
+    if y_pixel < top_third:
+        return "outside"
+    if y_pixel < middle_third:
+        return "buffer"
+    return "inside"
 
 
 def draw_door_calibration_overlay(image: np.ndarray) -> np.ndarray:
-    """Draw the door entrance lines for calibration only; never used on the live door feed."""
+    """Draw the door boundary lines for calibration or live preview."""
     overlay = image.copy()
     height, width = image.shape[:2]
     near_line, far_line = door_entrance_lines(width, height)

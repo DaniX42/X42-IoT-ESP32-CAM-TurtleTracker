@@ -33,6 +33,7 @@ def _prepare_frame(camera_id: str, payload: bytes) -> object:
     if camera_id != DOOR_CAMERA_ID:
         image = draw_enclosure_overlay(image)
         return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    image = draw_door_calibration_overlay(image)
     return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
 
 
