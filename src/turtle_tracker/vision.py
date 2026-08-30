@@ -182,8 +182,11 @@ def draw_detection_overlay(image: np.ndarray, detection: Detection, timestamp: d
     cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
     # Draw elapsed time if timestamp provided
     if timestamp is not None:
-        now = datetime.now(timezone.utc)
-        elapsed = (now - timestamp).total_seconds()
-        time_text = f"{int(elapsed)}s ago"
-        cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        try:
+            now = datetime.now(timezone.utc)
+            elapsed = (now - timestamp).total_seconds()
+            time_text = f"{int(elapsed)}s ago"
+            cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        except Exception:
+            pass  # If timestamp calculation fails, just skip the elapsed time text
     return overlay

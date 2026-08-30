@@ -14,6 +14,7 @@ from .mock import mock_jpeg
 from .mqtt import MqttPublisher
 from .tracking import DoorCrossingTracker, PositionTracker
 from .vision import (
+    Detection,
     MotionDetector,
     classify_door_detection,
     decode_jpeg,
@@ -194,21 +195,43 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         image = decode_jpeg(payload)
         detection = latest_detections.get(camera_id)
         detection_time = latest_detection_times.get(camera_id)
-        if detection is not None:
-            # Only show detection overlay if it's within valid boundaries
-            if camera_id == DOOR_CAMERA_ID:
-                # Door camera: always show if detection exists
-                image = draw_detection_overlay(image, detection, detection_time)
-            elif in_enclosure_polygon(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0]):
-                # Outdoor camera: only show if within enclosure
-                image = draw_detection_overlay(image, detection, detection_time)
-        # Apply the same transformations as _prepare_frame
+        # Apply the same transformations as _prepare_frame (before overlay)
         if camera_id != DOOR_CAMERA_ID:
             image = draw_enclosure_overlay(image)
             image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         else:
             image = draw_door_calibration_overlay(image)
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        # Draw overlay after transformations with adjusted coordinates
+        if detection is not None:
+            # Transform detection coordinates for rotated image
+            orig_width, orig_height = 640, 480
+            if camera_id != DOOR_CAMERA_ID:
+                # Rotated 90° CCW: new_x = orig_y, new_y = orig_width - orig_x
+                rotated_x = int(detection.y_pixel)
+                rotated_y = int(orig_width - detection.x_pixel)
+            else:
+                # Rotated 90° CW: new_x = orig_height - orig_y, new_y = orig_x
+                rotated_x = int(orig_height - detection.y_pixel)
+                rotated_y = int(detection.x_pixel)
+            # Create a transformed detection for drawing
+            transformed_detection = Detection(
+                x_pixel=rotated_x,
+                y_pixel=rotated_y,
+                confidence=detection.confidence,
+                x_min=detection.x_min,
+                y_min=detection.y_min,
+                x_max=detection.x_max,
+                y_max=detection.y_max,
+            )
+            # Check boundaries after transformation
+            show_overlay = False
+            if camera_id == DOOR_CAMERA_ID:
+                show_overlay = True
+            elif in_enclosure_polygon(detection.x_pixel, detection.y_pixel, orig_width, orig_height):
+                show_overlay = True
+            if show_overlay:
+                image = draw_detection_overlay(image, transformed_detection, detection_time)
         success, encoded = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode frame with detection")
