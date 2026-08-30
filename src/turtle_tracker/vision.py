@@ -164,3 +164,19 @@ def decode_jpeg(payload: bytes) -> np.ndarray:
     if image is None:
         raise ValueError("Payload is not a valid JPEG image")
     return image
+
+
+def draw_detection_overlay(image: np.ndarray, detection: Detection) -> np.ndarray:
+    """Draw a marker at the detected turtle position."""
+    overlay = image.copy()
+    x_pixel = int(detection.x_pixel)
+    y_pixel = int(detection.y_pixel)
+    # Draw a cyan circle around the detection center
+    cv2.circle(overlay, (x_pixel, y_pixel), 20, (255, 255, 0), 2)  # Cyan circle
+    # Draw a small crosshair
+    cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), (255, 255, 0), 2)
+    cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), (255, 255, 0), 2)
+    # Draw confidence text
+    confidence_text = f"{detection.confidence * 100:.0f}%"
+    cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    return overlay

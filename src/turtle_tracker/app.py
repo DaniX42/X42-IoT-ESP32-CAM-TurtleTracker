@@ -17,6 +17,7 @@ from .vision import (
     MotionDetector,
     classify_door_detection,
     decode_jpeg,
+    draw_detection_overlay,
     draw_door_calibration_overlay,
     draw_enclosure_overlay,
     draw_position_map,
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         settings.mqtt_enabled,
     )
     latest_frames: dict[str, bytes] = {}
+    latest_detections: dict[str, object] = {}  # Store Detection objects for visualization
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -95,6 +97,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if detection is None or detection.confidence < settings.min_confidence:
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
+        latest_detections[camera_id] = detection
         _save_motion_crop(image, detection, timestamp, camera_id)
         if camera_id == DOOR_CAMERA_ID:
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
@@ -179,6 +182,21 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode square latest frame")
         return Response(content=square_payload.tobytes(), media_type="image/jpeg")
+
+    @app.get("/api/frames/{camera_id}/latest/with-detection", response_class=Response)
+    def latest_frame_with_detection(camera_id: str) -> Response:
+        """Return the latest frame with turtle detection overlay."""
+        payload = latest_frames.get(camera_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="No frame received")
+        image = _prepare_frame(camera_id, payload)
+        detection = latest_detections.get(camera_id)
+        if detection is not None:
+            image = draw_detection_overlay(image, detection)
+        success, encoded = cv2.imencode(".jpg", image)
+        if not success:
+            raise HTTPException(status_code=500, detail="Could not encode frame with detection")
+        return Response(content=encoded.tobytes(), media_type="image/jpeg")
 
     @app.get("/api/position", response_model=Position)
     def current_position() -> Position:
