@@ -241,24 +241,31 @@ def draw_detection_overlay(image: np.ndarray, detections_with_times: Detection |
         x_pixel = int(detection.x_pixel)
         y_pixel = int(detection.y_pixel)
         
-        # Draw a circle (larger for rank 1, smaller for rank 2/3)
+        # Offset crosshair position by rank to avoid overlapping
+        # Rank 0: center, Rank 1: bottom-right, Rank 2: bottom-left
+        offsets = [(0, 0), (35, 35), (-35, 35)]
+        offset_x, offset_y = offsets[rank]
+        marker_x = x_pixel + offset_x
+        marker_y = y_pixel + offset_y
+        
+        # Draw a circle (larger for rank 0, smaller for rank 1/2)
         radius = 20 if rank == 0 else 15
-        cv2.circle(overlay, (x_pixel, y_pixel), radius, color, 2)
+        cv2.circle(overlay, (marker_x, marker_y), radius, color, 2)
         
         # Draw a small crosshair
-        cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), color, 2)
-        cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), color, 2)
+        cv2.line(overlay, (marker_x - 10, marker_y), (marker_x + 10, marker_y), color, 2)
+        cv2.line(overlay, (marker_x, marker_y - 10), (marker_x, marker_y + 10), color, 2)
         
         # Draw confidence text
         confidence_text = f"{detection.confidence * 100:.0f}%"
-        cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10 - rank * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(overlay, confidence_text, (marker_x + 25, marker_y - 10 - rank * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         
         # Draw elapsed time
         try:
             now = datetime.now(timezone.utc)
             elapsed = (now - det_time).total_seconds()
             time_text = _format_elapsed_time(elapsed)
-            cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15 - rank * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            cv2.putText(overlay, time_text, (marker_x + 25, marker_y + 15 - rank * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         except Exception:
             pass
     return overlay
