@@ -75,6 +75,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     )
     latest_frames: dict[str, bytes] = {}
     latest_detections: dict[str, object] = {}  # Store Detection objects for visualization
+    latest_detection_times: dict[str, datetime] = {}  # Store timestamp of last detection
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -98,6 +99,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
         latest_detections[camera_id] = detection
+        latest_detection_times[camera_id] = timestamp
         _save_motion_crop(image, detection, timestamp, camera_id)
         if camera_id == DOOR_CAMERA_ID:
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
@@ -185,20 +187,21 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
 
     @app.get("/api/frames/{camera_id}/latest/with-detection", response_class=Response)
     def latest_frame_with_detection(camera_id: str) -> Response:
-        """Return the latest frame with turtle detection overlay."""
+        """Return the latest frame with turtle detection overlay (persistent until next detection)."""
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
         image = decode_jpeg(payload)
         detection = latest_detections.get(camera_id)
+        detection_time = latest_detection_times.get(camera_id)
         if detection is not None:
             # Only show detection overlay if it's within valid boundaries
             if camera_id == DOOR_CAMERA_ID:
                 # Door camera: always show if detection exists
-                image = draw_detection_overlay(image, detection)
+                image = draw_detection_overlay(image, detection, detection_time)
             elif in_enclosure_polygon(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0]):
                 # Outdoor camera: only show if within enclosure
-                image = draw_detection_overlay(image, detection)
+                image = draw_detection_overlay(image, detection, detection_time)
         # Apply the same transformations as _prepare_frame
         if camera_id != DOOR_CAMERA_ID:
             image = draw_enclosure_overlay(image)

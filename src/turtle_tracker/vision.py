@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import cv2
 import numpy as np
@@ -166,8 +167,8 @@ def decode_jpeg(payload: bytes) -> np.ndarray:
     return image
 
 
-def draw_detection_overlay(image: np.ndarray, detection: Detection) -> np.ndarray:
-    """Draw a marker at the detected turtle position."""
+def draw_detection_overlay(image: np.ndarray, detection: Detection, timestamp: datetime | None = None) -> np.ndarray:
+    """Draw a marker at the detected turtle position with elapsed time info."""
     overlay = image.copy()
     x_pixel = int(detection.x_pixel)
     y_pixel = int(detection.y_pixel)
@@ -176,7 +177,13 @@ def draw_detection_overlay(image: np.ndarray, detection: Detection) -> np.ndarra
     # Draw a small crosshair
     cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), (255, 255, 0), 2)
     cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), (255, 255, 0), 2)
-    # Draw confidence text
+    # Draw confidence text (rotated 90° right)
     confidence_text = f"{detection.confidence * 100:.0f}%"
     cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    # Draw elapsed time if timestamp provided
+    if timestamp is not None:
+        now = datetime.now(timezone.utc)
+        elapsed = (now - timestamp).total_seconds()
+        time_text = f"{int(elapsed)}s ago"
+        cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
     return overlay
