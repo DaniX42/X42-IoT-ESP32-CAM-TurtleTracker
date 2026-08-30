@@ -189,10 +189,17 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
-        image = _prepare_frame(camera_id, payload)
+        image = decode_jpeg(payload)
         detection = latest_detections.get(camera_id)
         if detection is not None:
             image = draw_detection_overlay(image, detection)
+        # Apply the same transformations as _prepare_frame
+        if camera_id != DOOR_CAMERA_ID:
+            image = draw_enclosure_overlay(image)
+            image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        else:
+            image = draw_door_calibration_overlay(image)
+            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         success, encoded = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode frame with detection")
