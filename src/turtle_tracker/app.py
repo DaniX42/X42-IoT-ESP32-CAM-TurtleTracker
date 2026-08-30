@@ -170,10 +170,10 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if detection is None or detection.confidence < settings.min_confidence:
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
+        latest_detections[camera_id] = detection
+        latest_detection_times[camera_id] = timestamp
+        _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
         if camera_id == DOOR_CAMERA_ID:
-            latest_detections[camera_id] = detection
-            latest_detection_times[camera_id] = timestamp
-            _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
             crossing = door_tracker.update(side, timestamp)
             if crossing is not None:
@@ -184,9 +184,6 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             return IngestResponse(accepted=True)
         if not in_enclosure_polygon(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0]):
             return IngestResponse(accepted=False, reason="Motion detected outside the enclosure")
-        latest_detections[camera_id] = detection
-        latest_detection_times[camera_id] = timestamp
-        _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
         track = tracker.update(detection, timestamp)
         position = Position(
             timestamp=timestamp,
@@ -240,21 +237,72 @@ button.primary {{ background: #176b48; border-color: #176b48; color: white; }} b
 #count {{ margin-left: auto; }} main {{ padding: 18px; }}
 #grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; }}
 .crop {{ background: white; border: 1px solid #c6d0ca; border-radius: 6px; overflow: hidden; }}
-.crop img {{ display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #d5ddd8; }}
+.crop-media {{ position: relative; display: block; }}
+.crop img {{ display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #d5ddd8; cursor: pointer; }}
+.crop-status {{ position: absolute; inset: 10px 10px auto auto; padding: 6px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border: 1px solid rgba(0,0,0,.2); backdrop-filter: blur(2px); }}
+.crop-status.empty {{ background: rgba(23, 31, 29, 0.3); color: #f4f8f5; }}
+.crop-status.yes {{ background: rgba(23, 107, 72, 0.88); color: white; }}
+.crop-status.no {{ background: rgba(142, 51, 40, 0.88); color: white; }}
 .crop label {{ display: flex; align-items: center; gap: 6px; padding: 9px; }}
 footer {{ display: flex; justify-content: center; gap: 12px; padding: 24px; }}
-</style></head><body><header><strong>Motion crop review</strong><button class="primary" id="yes">Selected: Yes</button><button class="no" id="no">Selected: No</button><label><input type="checkbox" id="keep"> Keep no images for training</label><button id="save">Save</button><span id="count"></span></header><main><div id="grid"></div></main><footer><a id="previous">Previous</a><a id="next">Next</a></footer>
+</style></head><body><header><strong>Motion crop review</strong><button id="select-all">Select all on this page</button><button class="primary" id="yes">Selected: Yes</button><button class="no" id="no">Selected: No</button><label><input type="checkbox" id="keep"> Keep No images as training examples</label><button id="save">Save</button><span id="count"></span></header><main><div id="grid"></div></main><footer><a id="previous">Previous</a><a id="next">Next</a></footer>
 <script>
 const page = {current_page}, limit = 50, offset = (page - 1) * limit, choices = new Map();
 const grid = document.querySelector('#grid'), selected = () => [...document.querySelectorAll('.pick:checked')].map(input => input.value);
+function syncCropStatus() {{
+  document.querySelectorAll('.pick').forEach(input => {{
+    const filename = input.value;
+    const choice = choices.get(filename);
+    const article = input.closest('.crop');
+    const status = article?.querySelector('.crop-status');
+    const checked = !!choice;
+    input.checked = checked;
+    status && (status.className = `crop-status ${{choice ? (choice.is_turtle ? 'yes' : 'no') : 'empty'}}`);
+    if (status) status.textContent = choice ? (choice.is_turtle ? 'YES' : 'NO') : 'SELECT';
+  }});
+}}
+function toggleCropSelection(filename) {{
+  const input = document.querySelector(`.pick[value="${{CSS.escape(filename)}}"]`);
+  if (!input) return;
+  const nextChecked = !input.checked;
+  input.checked = nextChecked;
+  if (!nextChecked) {{
+    choices.delete(filename);
+  }} else {{
+    const current = choices.get(filename);
+    choices.set(filename, {{filename, is_turtle: current?.is_turtle ?? true, keep_for_training: current ? current.keep_for_training : false}});
+  }}
+  syncCropStatus();
+}}
 async function load() {{
   const data = await fetch(`/api/motion-crops?limit=${{limit}}&offset=${{offset}}`).then(response => response.json());
   document.querySelector('#count').textContent = `${{data.total}} images`;
-  grid.innerHTML = data.items.map(crop => `<article class="crop"><img loading="lazy" src="/api/motion-crops/${{encodeURIComponent(crop.filename)}}" alt="Motion crop"><label><input class="pick" type="checkbox" value="${{crop.filename}}"> Select</label></article>`).join('');
+  grid.innerHTML = data.items.map(crop => {{
+    const choice = choices.get(crop.filename);
+    const state = choice ? (choice.is_turtle ? 'YES' : 'NO') : 'SELECT';
+    const tone = choice ? (choice.is_turtle ? 'yes' : 'no') : 'empty';
+    return `<article class="crop"><div class="crop-media"><img loading="lazy" src="/api/motion-crops/${{encodeURIComponent(crop.filename)}}" alt="Motion crop" data-filename="${{crop.filename}}"><div class="crop-status ${{tone}}" aria-live="polite">${{state}}</div></div><label><input class="pick" type="checkbox" value="${{crop.filename}}" ${{choice ? 'checked' : ''}} data-filename="${{crop.filename}}"> Select</label></article>`;
+  }}).join('');
+  document.querySelectorAll('.pick').forEach(input => {{
+    input.onchange = () => {{
+      const filename = input.value;
+      if (input.checked) {{
+        const current = choices.get(filename);
+        choices.set(filename, {{filename, is_turtle: current?.is_turtle ?? true, keep_for_training: current ? current.keep_for_training : false}});
+      }} else {{
+        choices.delete(filename);
+      }}
+      syncCropStatus();
+    }});
+  }});
+  document.querySelectorAll('.crop img').forEach(img => {{
+    img.onclick = () => toggleCropSelection(img.dataset.filename);
+  }});
   document.querySelector('#previous').href = page > 1 ? `/api/motion-crops/review?page=${{page - 1}}` : '#';
   document.querySelector('#next').href = offset + limit < data.total ? `/api/motion-crops/review?page=${{page + 1}}` : '#';
 }}
-function mark(isTurtle) {{ selected().forEach(filename => choices.set(filename, {{filename, is_turtle: isTurtle, keep_for_training: !isTurtle && document.querySelector('#keep').checked}})); }}
+function mark(isTurtle) {{ selected().forEach(filename => choices.set(filename, {{filename, is_turtle: isTurtle, keep_for_training: !isTurtle && document.querySelector('#keep').checked}})); syncCropStatus(); }}
+document.querySelector('#select-all').onclick = () => {{ const picks = [...document.querySelectorAll('.pick')]; const select = picks.some(input => !input.checked); picks.forEach(input => input.checked = select); if (select) {{ picks.forEach(input => {{ const current = choices.get(input.value); choices.set(input.value, {{filename: input.value, is_turtle: current?.is_turtle ?? true, keep_for_training: current ? current.keep_for_training : false}}); }}); }} else {{ picks.forEach(input => choices.delete(input.value)); }} syncCropStatus(); }};
 document.querySelector('#yes').onclick = () => mark(true); document.querySelector('#no').onclick = () => mark(false);
 document.querySelector('#save').onclick = async () => {{ if (!choices.size) return; await fetch('/api/motion-crops/labels', {{method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{items: [...choices.values()]}})}}); location.reload(); }};
 load();
