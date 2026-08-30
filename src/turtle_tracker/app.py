@@ -170,10 +170,10 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if detection is None or detection.confidence < settings.min_confidence:
             return IngestResponse(accepted=False, reason="No confident motion detected")
         timestamp = _utc_now()
-        latest_detections[camera_id] = detection
-        latest_detection_times[camera_id] = timestamp
-        _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
         if camera_id == DOOR_CAMERA_ID:
+            latest_detections[camera_id] = detection
+            latest_detection_times[camera_id] = timestamp
+            _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
             crossing = door_tracker.update(side, timestamp)
             if crossing is not None:
@@ -184,6 +184,9 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             return IngestResponse(accepted=True)
         if not in_enclosure_polygon(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0]):
             return IngestResponse(accepted=False, reason="Motion detected outside the enclosure")
+        latest_detections[camera_id] = detection
+        latest_detection_times[camera_id] = timestamp
+        _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
         track = tracker.update(detection, timestamp)
         position = Position(
             timestamp=timestamp,
@@ -257,6 +260,7 @@ function syncCropStatus() {{
     const status = article?.querySelector('.crop-status');
     const checked = !!choice;
     input.checked = checked;
+    article?.classList.toggle('selected', checked);
     status && (status.className = `crop-status ${{choice ? (choice.is_turtle ? 'yes' : 'no') : 'empty'}}`);
     if (status) status.textContent = choice ? (choice.is_turtle ? 'YES' : 'NO') : 'SELECT';
   }});
@@ -270,7 +274,7 @@ function toggleCropSelection(filename) {{
     choices.delete(filename);
   }} else {{
     const current = choices.get(filename);
-    choices.set(filename, {{filename, is_turtle: current?.is_turtle ?? true, keep_for_training: current ? current.keep_for_training : false}});
+    choices.set(filename, {{filename, is_turtle: current?.is_turtle ?? true, keep_for_training: current ? current.keep_for_training : (!current?.is_turtle && document.querySelector('#keep').checked)}});
   }}
   syncCropStatus();
 }}

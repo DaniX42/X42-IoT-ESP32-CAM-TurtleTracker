@@ -180,3 +180,15 @@ def test_position_map_reflects_latest_position(tmp_path: Path):
 
     assert response.status_code == 200
     assert decode_jpeg(response.content) is not None
+
+
+def test_motion_crop_review_includes_yes_no_toggle_overlay(tmp_path: Path):
+    client = make_client(tmp_path)
+
+    response = client.get("/api/motion-crops/review")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "YES" in html and "NO" in html
+    assert "toggleCropSelection" in html
+    assert "crop-status" in html
