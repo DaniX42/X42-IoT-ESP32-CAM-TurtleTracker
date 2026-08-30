@@ -91,6 +91,28 @@ def test_outside_motion_keeps_last_valid_detection_overlay(tmp_path: Path):
     assert marker.any()
 
 
+def test_accepts_small_in_enclosure_motion_after_static_period(tmp_path: Path):
+    client = make_client(tmp_path)
+    background = np.full((360, 640, 3), (55, 105, 55), dtype=np.uint8)
+    cv2.rectangle(background, (8, 8), (632, 352), (180, 180, 180), 2)
+    stationary = background.copy()
+    cv2.circle(stationary, (200, 180), 20, (35, 70, 130), -1)
+    shifted = background.copy()
+    cv2.circle(shifted, (205, 180), 20, (35, 70, 130), -1)
+    ok, background_jpeg = cv2.imencode(".jpg", background)
+    stationary_ok, stationary_jpeg = cv2.imencode(".jpg", stationary)
+    shifted_ok, shifted_jpeg = cv2.imencode(".jpg", shifted)
+    assert ok and stationary_ok and shifted_ok
+    for _ in range(20):
+        client.post("/api/frames/outdoor", content=background_jpeg.tobytes(), headers={"content-type": "image/jpeg"})
+    for _ in range(150):
+        client.post("/api/frames/outdoor", content=stationary_jpeg.tobytes(), headers={"content-type": "image/jpeg"})
+
+    response = client.post("/api/frames/outdoor", content=shifted_jpeg.tobytes(), headers={"content-type": "image/jpeg"})
+
+    assert response.json()["accepted"] is True
+
+
 def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
     client = make_client(tmp_path)
     payload = mock_jpeg()

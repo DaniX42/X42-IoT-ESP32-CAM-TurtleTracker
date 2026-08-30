@@ -113,7 +113,7 @@ The backend settings are:
 | `ENCLOSURE_WIDTH_METERS` | `2.5` | Real-world enclosure width |
 | `HOUSE_X_METERS` | `7.0` | House position on the enclosure map, used while indoor |
 | `HOUSE_Y_METERS` | `2.5` | House position on the enclosure map, used while indoor |
-| `MIN_CONFIDENCE` | `0.1` | Minimum accepted motion confidence |
+| `MIN_CONFIDENCE` | `0.02` | Minimum accepted motion confidence |
 
 Never commit `.env`, `firmware/secrets.ini`, or `firmware/src/generated_secrets.h`. The repository contains example files only. Firmware credentials are generated locally from `firmware/secrets.ini` by the PlatformIO pre-build script.
 

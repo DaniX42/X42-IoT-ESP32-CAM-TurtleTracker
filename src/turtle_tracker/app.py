@@ -22,6 +22,7 @@ from .vision import (
     draw_detection_overlay,
     draw_door_calibration_overlay,
     draw_enclosure_overlay,
+    draw_house_overlay,
     draw_position_map,
     in_enclosure_polygon,
 )
@@ -360,6 +361,18 @@ load();
                 show_overlay = True
             if show_overlay:
                 image = draw_detection_overlay(image, transformed_detection, detection_time)
+        if camera_id != DOOR_CAMERA_ID and house_state["inside_house"]:
+            house_detection = _rotated_detection(
+                Detection(
+                    x_pixel=settings.house_overlay_x_fraction * orig_width,
+                    y_pixel=settings.house_overlay_y_fraction * orig_height,
+                    confidence=1.0,
+                ),
+                camera_id,
+                orig_width,
+                orig_height,
+            )
+            image = draw_house_overlay(image, int(house_detection.x_pixel), int(house_detection.y_pixel))
         success, encoded = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode frame with detection")

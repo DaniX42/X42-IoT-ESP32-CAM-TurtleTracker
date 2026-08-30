@@ -194,3 +194,14 @@ def draw_detection_overlay(image: np.ndarray, detection: Detection, timestamp: d
         except Exception:
             pass  # If timestamp calculation fails, just skip the elapsed time text
     return overlay
+
+
+def draw_house_overlay(image: np.ndarray, x_pixel: int, y_pixel: int) -> np.ndarray:
+    """Draw the configured house marker on the outdoor camera frame."""
+    overlay = image.copy()
+    cyan = (255, 255, 0)
+    cv2.circle(overlay, (x_pixel, y_pixel), 20, cyan, 2)
+    cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), cyan, 2)
+    cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), cyan, 2)
+    cv2.putText(overlay, "@Home", (x_pixel + 25, y_pixel - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, cyan, 2)
+    return overlay

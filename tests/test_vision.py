@@ -7,6 +7,7 @@ from turtle_tracker.vision import (
     ENCLOSURE_POLYGON_SOURCE,
     classify_door_detection,
     door_entrance_lines,
+    draw_house_overlay,
     draw_position_map,
     in_enclosure_polygon,
 )
@@ -76,3 +77,9 @@ def test_draw_position_map_clamps_out_of_range_position_into_view():
     image = draw_position_map(7.0, 2.5, 15.97, 2.94, inside_house=False)
     orange = np.array([0, 165, 255])
     assert (image == orange).all(axis=-1).any()
+
+
+def test_draw_house_overlay_marks_configured_pixel():
+    image = draw_house_overlay(np.zeros((100, 100, 3), dtype=np.uint8), 50, 50)
+
+    assert (image[50, 40] == np.array([255, 255, 0])).all()

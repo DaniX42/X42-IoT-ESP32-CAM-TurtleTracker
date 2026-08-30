@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     enclosure_width_meters: float = 2.5
     house_x_meters: float = 7.0
     house_y_meters: float = 2.5
-    min_confidence: float = 0.1
+    house_overlay_x_fraction: float = 0.5
+    house_overlay_y_fraction: float = 0.499
+    min_confidence: float = 0.02
     mqtt_enabled: bool = False
     mqtt_host: str | None = None
     mqtt_port: int = 1883
