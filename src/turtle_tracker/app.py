@@ -297,7 +297,7 @@ async function load() {{
         choices.delete(filename);
       }}
       syncCropStatus();
-    }});
+    }};
   }});
   document.querySelectorAll('.crop img').forEach(img => {{
     img.onclick = () => toggleCropSelection(img.dataset.filename);
