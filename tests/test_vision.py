@@ -65,10 +65,11 @@ def test_draw_position_map_shape_scales_with_enclosure_size():
     assert image.shape == (2.5 * 80 + 80, 7.0 * 80 + 80, 3)
 
 
-def test_draw_position_map_inside_house_ignores_coordinates():
-    with_coords = draw_position_map(7.0, 2.5, 3.5, 1.25, inside_house=True)
-    without_coords = draw_position_map(7.0, 2.5, None, None, inside_house=True)
-    assert (with_coords == without_coords).all()
+def test_draw_position_map_places_indoor_marker_at_configured_house_location():
+    image = draw_position_map(7.0, 2.5, None, None, inside_house=True, house_x=3.5, house_y=1.25)
+    orange = np.array([0, 165, 255])
+
+    assert (image[140, 320] == orange).all()
 
 
 def test_draw_position_map_clamps_out_of_range_position_into_view():

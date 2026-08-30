@@ -393,7 +393,15 @@ load();
         row = database.latest_position()
         x = row["x"] if row is not None else None
         y = row["y"] if row is not None else None
-        image = draw_position_map(settings.enclosure_length_meters, settings.enclosure_width_meters, x, y, house_state["inside_house"])
+        image = draw_position_map(
+            settings.enclosure_length_meters,
+            settings.enclosure_width_meters,
+            x,
+            y,
+            house_state["inside_house"],
+            settings.house_x_meters,
+            settings.house_y_meters,
+        )
         success, encoded = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode position map")

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     mock_images_enabled: bool = True
     enclosure_length_meters: float = 7.0
     enclosure_width_meters: float = 2.5
+    house_x_meters: float = 7.0
+    house_y_meters: float = 2.5
     min_confidence: float = 0.1
     mqtt_enabled: bool = False
     mqtt_host: str | None = None

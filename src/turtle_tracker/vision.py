@@ -104,8 +104,10 @@ def draw_position_map(
     x: float | None,
     y: float | None,
     inside_house: bool,
+    house_x: float = 7.0,
+    house_y: float = 2.5,
 ) -> np.ndarray:
-    """Schematic top-down enclosure map with the tortoise position, or "@Home" when inside the house."""
+    """Schematic top-down enclosure map with the tortoise or house position marked."""
     scale = 80.0
     margin = 40
     enclosure_width_px = round(length_meters * scale)
@@ -116,7 +118,9 @@ def draw_position_map(
     cv2.rectangle(image, top_left, bottom_right, (255, 255, 255), 2)
 
     if inside_house:
-        house_point = (margin, margin + enclosure_height_px // 2)
+        house_x = min(max(house_x, 0.0), length_meters)
+        house_y = min(max(house_y, 0.0), width_meters)
+        house_point = (margin + round(house_x * scale), margin + round(house_y * scale))
         cv2.circle(image, house_point, 10, (0, 165, 255), -1)
         cv2.putText(image, "@Home", (house_point[0] + 16, house_point[1] + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2, cv2.LINE_AA)
     elif x is not None and y is not None:
