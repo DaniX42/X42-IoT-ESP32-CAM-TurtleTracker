@@ -192,7 +192,13 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         image = decode_jpeg(payload)
         detection = latest_detections.get(camera_id)
         if detection is not None:
-            image = draw_detection_overlay(image, detection)
+            # Only show detection overlay if it's within valid boundaries
+            if camera_id == DOOR_CAMERA_ID:
+                # Door camera: always show if detection exists
+                image = draw_detection_overlay(image, detection)
+            elif in_enclosure_polygon(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0]):
+                # Outdoor camera: only show if within enclosure
+                image = draw_detection_overlay(image, detection)
         # Apply the same transformations as _prepare_frame
         if camera_id != DOOR_CAMERA_ID:
             image = draw_enclosure_overlay(image)
