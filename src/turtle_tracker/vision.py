@@ -29,6 +29,21 @@ def scaled_enclosure_polygon(width: int, height: int) -> np.ndarray:
     return np.rint(center + (polygon - center) * 1.01).astype(np.int32)
 
 
+def get_enclosure_top_y(width: int, height: int) -> int:
+    """Get the minimum Y coordinate of the enclosure polygon (top edge in rotated frame)."""
+    polygon = scaled_enclosure_polygon(width, height)
+    return int(polygon[:, 1].min())
+
+
+def crop_to_enclosure(image: np.ndarray) -> np.ndarray:
+    """Crop image to remove everything above the enclosure polygon."""
+    height, width = image.shape[:2]
+    top_y = get_enclosure_top_y(width, height)
+    # Add small margin but ensure it stays within bounds
+    top_y = max(0, top_y - 5)
+    return image[top_y:, :]
+
+
 def in_enclosure_polygon(x_pixel: float, y_pixel: float, width: int, height: int) -> bool:
     """Reject motion detected outside the calibrated enclosure area (e.g. plants, shadows outside the fence)."""
     polygon = scaled_enclosure_polygon(width, height)

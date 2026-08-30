@@ -18,6 +18,7 @@ from .vision import (
     Detection,
     MotionDetector,
     classify_door_detection,
+    crop_to_enclosure,
     decode_jpeg,
     draw_detection_overlay,
     draw_door_calibration_overlay,
@@ -100,9 +101,12 @@ def _prepare_frame(camera_id: str, payload: bytes) -> object:
     image = decode_jpeg(payload)
     if camera_id != DOOR_CAMERA_ID:
         image = draw_enclosure_overlay(image)
-        return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    image = draw_door_calibration_overlay(image)
-    return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        image = crop_to_enclosure(image)
+    else:
+        image = draw_door_calibration_overlay(image)
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    return image
 
 
 def _rotated_detection(detection: Detection, camera_id: str, width: int, height: int) -> Detection:
@@ -347,7 +351,7 @@ load();
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
-        image = _prepare_frame(camera_id, payload)
+        image = _prepare_frame(camera_id, payload)  # Already includes cropping for outdoor
         success, rotated_payload = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode latest frame")
@@ -371,7 +375,7 @@ load();
         payload = latest_frames.get(camera_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
-        image = _prepare_frame(camera_id, payload)
+        image = _prepare_frame(camera_id, payload)  # Already includes cropping
         height, width = image.shape[:2]
         size = 500
         scale = min(size / width, size / height)
@@ -445,6 +449,9 @@ load();
                 orig_height,
             )
             image = draw_house_overlay(image, int(house_detection.x_pixel), int(house_detection.y_pixel))
+        # Crop to enclosure for outdoor camera
+        if camera_id != DOOR_CAMERA_ID:
+            image = crop_to_enclosure(image)
         success, encoded = cv2.imencode(".jpg", image)
         if not success:
             raise HTTPException(status_code=500, detail="Could not encode frame with detection")

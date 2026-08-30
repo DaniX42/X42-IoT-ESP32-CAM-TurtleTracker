@@ -123,7 +123,10 @@ def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
     latest = client.get("/api/frames/outdoor/latest")
     assert latest.status_code == 200
     assert latest.headers["content-type"] == "image/jpeg"
-    assert decode_jpeg(latest.content).shape[:2] == (640, 360)
+    # Image is cropped to enclosure, so height is less than 640
+    height, width = decode_jpeg(latest.content).shape[:2]
+    assert width == 360
+    assert height < 640  # Cropped from top
 
 
 def test_door_latest_frame_is_vga_with_overlay(tmp_path: Path):
