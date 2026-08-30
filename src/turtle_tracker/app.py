@@ -148,6 +148,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     latest_frames: dict[str, bytes] = {}
     latest_detections: dict[str, object] = {}  # Store Detection objects for visualization
     latest_detection_times: dict[str, datetime] = {}  # Store timestamp of last detection
+    detection_history: dict[str, list[tuple[Detection, datetime]]] = {}  # Store top-3 detections with timestamps
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -173,6 +174,12 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if camera_id == DOOR_CAMERA_ID:
             latest_detections[camera_id] = detection
             latest_detection_times[camera_id] = timestamp
+            # Update detection history (keep top-3 by confidence)
+            if camera_id not in detection_history:
+                detection_history[camera_id] = []
+            detection_history[camera_id].append((detection, timestamp))
+            detection_history[camera_id].sort(key=lambda x: x[0].confidence, reverse=True)
+            detection_history[camera_id] = detection_history[camera_id][:3]
             _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
             crossing = door_tracker.update(side, timestamp)
@@ -186,6 +193,12 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             return IngestResponse(accepted=False, reason="Motion detected outside the enclosure")
         latest_detections[camera_id] = detection
         latest_detection_times[camera_id] = timestamp
+        # Update detection history (keep top-3 by confidence)
+        if camera_id not in detection_history:
+            detection_history[camera_id] = []
+        detection_history[camera_id].append((detection, timestamp))
+        detection_history[camera_id].sort(key=lambda x: x[0].confidence, reverse=True)
+        detection_history[camera_id] = detection_history[camera_id][:3]
         _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
         track = tracker.update(detection, timestamp)
         position = Position(
@@ -403,16 +416,23 @@ load();
             image = draw_door_calibration_overlay(image)
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         # Draw overlay after transformations with adjusted coordinates
-        if detection is not None:
-            transformed_detection = _rotated_detection(detection, camera_id, orig_width, orig_height)
-            # Check boundaries after transformation
+        history = detection_history.get(camera_id, [])
+        if history:
+            # Transform all detections in history
+            transformed_history = []
+            for det, det_time in history:
+                transformed = _rotated_detection(det, camera_id, orig_width, orig_height)
+                transformed_history.append((transformed, det_time))
+            
+            # Check if any detection should be shown
             show_overlay = False
             if camera_id == DOOR_CAMERA_ID:
                 show_overlay = True
-            elif in_enclosure_polygon(detection.x_pixel, detection.y_pixel, orig_width, orig_height):
+            elif any(in_enclosure_polygon(det.x_pixel, det.y_pixel, orig_width, orig_height) for det, _ in history):
                 show_overlay = True
+            
             if show_overlay:
-                image = draw_detection_overlay(image, transformed_detection, detection_time)
+                image = draw_detection_overlay(image, transformed_history)
         if camera_id != DOOR_CAMERA_ID and house_state["inside_house"]:
             house_detection = _rotated_detection(
                 Detection(

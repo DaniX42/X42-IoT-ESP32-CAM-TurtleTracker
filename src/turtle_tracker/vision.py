@@ -171,28 +171,81 @@ def decode_jpeg(payload: bytes) -> np.ndarray:
     return image
 
 
-def draw_detection_overlay(image: np.ndarray, detection: Detection, timestamp: datetime | None = None) -> np.ndarray:
-    """Draw a marker at the detected turtle position with elapsed time info."""
+def _format_elapsed_time(elapsed_seconds: float) -> str:
+    """Format elapsed seconds as 's ago' or 'Xm Ys ago' if >= 60 seconds."""
+    if elapsed_seconds < 60:
+        return f"{int(elapsed_seconds)}s ago"
+    minutes = int(elapsed_seconds // 60)
+    seconds = int(elapsed_seconds % 60)
+    return f"{minutes}m {seconds}s ago"
+
+
+def draw_detection_overlay(image: np.ndarray, detections_with_times: Detection | list[tuple[Detection, datetime]], timestamp: datetime | None = None) -> np.ndarray:
+    """Draw markers at detected turtle positions with elapsed time info.
+    
+    Args:
+        image: The image to draw on
+        detections_with_times: Single Detection (legacy) or list of (Detection, datetime) tuples for top-3
+        timestamp: Legacy parameter for single detection (ignored if detections_with_times is a list)
+    """
     overlay = image.copy()
-    x_pixel = int(detection.x_pixel)
-    y_pixel = int(detection.y_pixel)
-    # Draw a cyan circle around the detection center
-    cv2.circle(overlay, (x_pixel, y_pixel), 20, (255, 255, 0), 2)  # Cyan circle
-    # Draw a small crosshair
-    cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), (255, 255, 0), 2)
-    cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), (255, 255, 0), 2)
-    # Draw confidence text (rotated 90° right)
-    confidence_text = f"{detection.confidence * 100:.0f}%"
-    cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-    # Draw elapsed time if timestamp provided
-    if timestamp is not None:
+    
+    # Handle legacy single detection case
+    if isinstance(detections_with_times, Detection):
+        detection = detections_with_times
+        x_pixel = int(detection.x_pixel)
+        y_pixel = int(detection.y_pixel)
+        # Draw a cyan circle around the detection center
+        cv2.circle(overlay, (x_pixel, y_pixel), 20, (255, 255, 0), 2)  # Cyan circle
+        # Draw a small crosshair
+        cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), (255, 255, 0), 2)
+        cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), (255, 255, 0), 2)
+        # Draw confidence text
+        confidence_text = f"{detection.confidence * 100:.0f}%"
+        cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        # Draw elapsed time if timestamp provided
+        if timestamp is not None:
+            try:
+                now = datetime.now(timezone.utc)
+                elapsed = (now - timestamp).total_seconds()
+                time_text = _format_elapsed_time(elapsed)
+                cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            except Exception:
+                pass
+        return overlay
+    
+    # New multi-detection case
+    colors = [
+        (255, 255, 0),    # Position 1: Cyan (Türkis)
+        (200, 200, 200),  # Position 2: Gray (Grau)
+        (203, 192, 255)   # Position 3: Pink/Rose (Rosa)
+    ]
+    
+    for rank, (detection, det_time) in enumerate(detections_with_times[:3]):
+        color = colors[rank]
+        x_pixel = int(detection.x_pixel)
+        y_pixel = int(detection.y_pixel)
+        
+        # Draw a circle (larger for rank 1, smaller for rank 2/3)
+        radius = 20 if rank == 0 else 15
+        cv2.circle(overlay, (x_pixel, y_pixel), radius, color, 2)
+        
+        # Draw a small crosshair
+        cv2.line(overlay, (x_pixel - 10, y_pixel), (x_pixel + 10, y_pixel), color, 2)
+        cv2.line(overlay, (x_pixel, y_pixel - 10), (x_pixel, y_pixel + 10), color, 2)
+        
+        # Draw confidence text
+        confidence_text = f"{detection.confidence * 100:.0f}%"
+        cv2.putText(overlay, confidence_text, (x_pixel + 25, y_pixel - 10 - rank * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        
+        # Draw elapsed time
         try:
             now = datetime.now(timezone.utc)
-            elapsed = (now - timestamp).total_seconds()
-            time_text = f"{int(elapsed)}s ago"
-            cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            elapsed = (now - det_time).total_seconds()
+            time_text = _format_elapsed_time(elapsed)
+            cv2.putText(overlay, time_text, (x_pixel + 25, y_pixel + 15 - rank * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         except Exception:
-            pass  # If timestamp calculation fails, just skip the elapsed time text
+            pass
     return overlay
 
 
