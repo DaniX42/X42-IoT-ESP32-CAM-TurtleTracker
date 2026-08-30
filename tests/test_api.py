@@ -12,7 +12,7 @@ from turtle_tracker.vision import Detection, decode_jpeg
 
 
 def make_client(tmp_path: Path) -> TestClient:
-    settings = Settings(database_path=tmp_path / "test.db")
+    settings = Settings(database_path=tmp_path / "test.db", motion_crops_path=tmp_path / "motion-crops")
     return TestClient(create_app(settings=settings, database=Database(settings.database_path)))
 
 
@@ -69,6 +69,26 @@ def test_rejects_motion_outside_enclosure_polygon(tmp_path: Path):
     body = response.json()
     assert body["accepted"] is False
     assert body["reason"] == "Motion detected outside the enclosure"
+
+
+def test_outside_motion_keeps_last_valid_detection_overlay(tmp_path: Path):
+    client = make_client(tmp_path)
+    background = np.full((360, 640, 3), (55, 105, 55), dtype=np.uint8)
+    cv2.rectangle(background, (8, 8), (632, 352), (180, 180, 180), 2)
+    ok, background_jpeg = cv2.imencode(".jpg", background)
+    assert ok
+    for _ in range(3):
+        client.post("/api/frames/outdoor", content=background_jpeg.tobytes(), headers={"content-type": "image/jpeg"})
+
+    assert client.post("/api/frames/outdoor", content=mock_jpeg(), headers={"content-type": "image/jpeg"}).json()["accepted"] is True
+    for _ in range(2):
+        client.post("/api/frames/outdoor", content=background_jpeg.tobytes(), headers={"content-type": "image/jpeg"})
+    outside = client.post("/api/frames/outdoor", content=mock_jpeg(x=10, y=10), headers={"content-type": "image/jpeg"})
+    image = decode_jpeg(client.get("/api/frames/outdoor/latest/with-detection").content)
+    marker = (image[:, :, 0] > 235) & (image[:, :, 1] > 235) & (image[:, :, 2] < 100)
+
+    assert outside.json()["accepted"] is False
+    assert marker.any()
 
 
 def test_latest_frame_is_available_as_jpeg(tmp_path: Path):
