@@ -22,3 +22,31 @@ class HeatmapPoint(BaseModel):
     x: float
     y: float
     count: int
+
+
+class MotionCrop(BaseModel):
+    filename: str
+    camera_id: str
+    captured_at: datetime
+    is_turtle: bool | None = None
+    keep_for_training: bool = False
+
+
+class MotionCropLabel(BaseModel):
+    is_turtle: bool
+    keep_for_training: bool = False
+
+
+class MotionCropLabelItem(MotionCropLabel):
+    filename: str
+
+
+class MotionCropLabelBatch(BaseModel):
+    items: list[MotionCropLabelItem]
+
+
+class MotionCropPage(BaseModel):
+    items: list[MotionCrop]
+    total: int
+    limit: int
+    offset: int

@@ -20,6 +20,15 @@ CREATE TABLE IF NOT EXISTS events (
     event TEXT NOT NULL,
     details TEXT
 );
+CREATE TABLE IF NOT EXISTS motion_crops (
+    filename TEXT PRIMARY KEY,
+    camera_id TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    perceptual_hash TEXT NOT NULL,
+    is_turtle INTEGER,
+    keep_for_training INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_motion_crops_captured_at ON motion_crops(captured_at DESC);
 """
 
 
@@ -57,6 +66,54 @@ class Database:
     def insert_event(self, timestamp: str, event: str, details: str | None = None) -> None:
         with self.connect() as connection:
             connection.execute("INSERT INTO events (timestamp, event, details) VALUES (?, ?, ?)", (timestamp, event, details))
+
+    def insert_motion_crop(self, filename: str, camera_id: str, captured_at: str, perceptual_hash: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO motion_crops (filename, camera_id, captured_at, perceptual_hash) VALUES (?, ?, ?, ?)",
+                (filename, camera_id, captured_at, perceptual_hash),
+            )
+
+    def motion_crops(self, is_turtle: bool | None = None, limit: int = 50, offset: int = 0) -> list[sqlite3.Row]:
+        query = "SELECT * FROM motion_crops"
+        parameters: tuple[object, ...] = ()
+        if is_turtle is not None:
+            query += " WHERE is_turtle = ?"
+            parameters = (int(is_turtle),)
+        query += " ORDER BY captured_at DESC LIMIT ? OFFSET ?"
+        parameters += (limit, offset)
+        with self.connect() as connection:
+            return list(connection.execute(query, parameters))
+
+    def motion_crop_count(self, is_turtle: bool | None = None) -> int:
+        query = "SELECT COUNT(*) AS count FROM motion_crops"
+        parameters: tuple[object, ...] = ()
+        if is_turtle is not None:
+            query += " WHERE is_turtle = ?"
+            parameters = (int(is_turtle),)
+        with self.connect() as connection:
+            return int(connection.execute(query, parameters).fetchone()["count"])
+
+    def motion_crop_hashes(self) -> list[str]:
+        with self.connect() as connection:
+            return [str(row["perceptual_hash"]) for row in connection.execute("SELECT perceptual_hash FROM motion_crops")]
+
+    def motion_crop(self, filename: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute("SELECT * FROM motion_crops WHERE filename = ?", (filename,)).fetchone()
+
+    def label_motion_crop(self, filename: str, is_turtle: bool, keep_for_training: bool) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE motion_crops SET is_turtle = ?, keep_for_training = ? WHERE filename = ?",
+                (int(is_turtle), int(keep_for_training), filename),
+            )
+            return cursor.rowcount == 1
+
+    def delete_motion_crop(self, filename: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute("DELETE FROM motion_crops WHERE filename = ?", (filename,))
+            return cursor.rowcount == 1
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:

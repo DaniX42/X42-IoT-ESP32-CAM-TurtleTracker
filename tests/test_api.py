@@ -4,11 +4,11 @@ import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
-from turtle_tracker.app import create_app
+from turtle_tracker.app import _rotated_detection, create_app
 from turtle_tracker.config import Settings
 from turtle_tracker.db import Database
 from turtle_tracker.mock import mock_jpeg
-from turtle_tracker.vision import decode_jpeg
+from turtle_tracker.vision import Detection, decode_jpeg
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -43,6 +43,14 @@ def test_accepts_raw_jpeg_payload_from_camera(tmp_path: Path):
     response = client.post("/api/frames/outdoor", content=mock_jpeg(), headers={"content-type": "image/jpeg"})
     assert response.status_code == 200
     assert response.json()["accepted"] is True
+
+
+def test_detection_rotation_uses_actual_large_camera_resolution():
+    detection = Detection(x_pixel=809, y_pixel=244, confidence=1.0)
+
+    rotated = _rotated_detection(detection, "turtle-cam-outdoor", width=1600, height=1200)
+
+    assert (rotated.x_pixel, rotated.y_pixel) == (244, 790)
 
 
 def test_rejects_motion_outside_enclosure_polygon(tmp_path: Path):

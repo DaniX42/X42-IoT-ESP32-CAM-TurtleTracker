@@ -5,11 +5,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import HTMLResponse
 
 from .calibration import HomographyCalibration
 from .config import Settings, get_settings
 from .db import Database, row_to_dict
-from .models import HeatmapPoint, IngestResponse, Position
+from .models import HeatmapPoint, IngestResponse, MotionCrop, MotionCropLabel, MotionCropLabelBatch, MotionCropPage, Position
 from .mock import mock_jpeg
 from .mqtt import MqttPublisher
 from .tracking import DoorCrossingTracker, PositionTracker
@@ -26,22 +27,72 @@ from .vision import (
 )
 
 DOOR_CAMERA_ID = "turtle-cam-door"
-MOTION_CROPS_DIR = Path("data/motion_crops")
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _save_motion_crop(image: np.ndarray, detection, timestamp: datetime, camera_id: str) -> None:
+def _perceptual_hash(image: np.ndarray) -> str:
+    grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    resized = cv2.resize(grayscale, (32, 32), interpolation=cv2.INTER_AREA)
+    coefficients = cv2.dct(np.float32(resized))[:8, :8]
+    median = np.median(coefficients[1:, :])
+    bits = (coefficients > median).flatten()
+    return f"{sum(int(bit) << index for index, bit in enumerate(bits)):016x}"
+
+
+def _is_near_duplicate(perceptual_hash: str, known_hashes: list[str]) -> bool:
+    value = int(perceptual_hash, 16)
+    return any((value ^ int(known_hash, 16)).bit_count() <= 3 for known_hash in known_hashes)
+
+
+def _save_motion_crop(
+    image: np.ndarray,
+    detection: Detection,
+    timestamp: datetime,
+    camera_id: str,
+    crops_path: Path,
+    database: Database,
+) -> None:
     """Save a crop of detected motion for later training data labeling."""
-    MOTION_CROPS_DIR.mkdir(parents=True, exist_ok=True)
     crop = image[detection.y_min : detection.y_max, detection.x_min : detection.x_max]
-    if crop.size > 0:
-        filename = MOTION_CROPS_DIR / f"{timestamp.isoformat()}_{camera_id}.jpg"
-        success, encoded = cv2.imencode(".jpg", crop)
-        if success:
-            filename.write_bytes(encoded.tobytes())
+    if crop.size == 0:
+        return
+    perceptual_hash = _perceptual_hash(crop)
+    if _is_near_duplicate(perceptual_hash, database.motion_crop_hashes()):
+        return
+    crops_path.mkdir(parents=True, exist_ok=True)
+    filename = f"{timestamp.isoformat()}_{camera_id}.jpg"
+    success, encoded = cv2.imencode(".jpg", crop)
+    if success:
+        (crops_path / filename).write_bytes(encoded.tobytes())
+        database.insert_motion_crop(filename, camera_id, timestamp.isoformat(), perceptual_hash)
+
+
+def _register_existing_motion_crops(crops_path: Path, database: Database) -> None:
+    if not crops_path.exists():
+        return
+    known_hashes: list[str] = []
+    for path in sorted(crops_path.glob("*.jpg")):
+        crop = database.motion_crop(path.name)
+        image = cv2.imread(str(path))
+        if image is None:
+            continue
+        perceptual_hash = _perceptual_hash(image)
+        if crop is not None and crop["keep_for_training"]:
+            known_hashes.append(perceptual_hash)
+            continue
+        if _is_near_duplicate(perceptual_hash, known_hashes):
+            path.unlink(missing_ok=True)
+            if crop is not None:
+                database.delete_motion_crop(path.name)
+            continue
+        known_hashes.append(perceptual_hash)
+        if crop is None:
+            camera_id = path.stem.rsplit("_", 1)[-1]
+            captured_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+            database.insert_motion_crop(path.name, camera_id, captured_at, perceptual_hash)
 
 
 def _prepare_frame(camera_id: str, payload: bytes) -> object:
@@ -53,10 +104,29 @@ def _prepare_frame(camera_id: str, payload: bytes) -> object:
     return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
 
 
+def _rotated_detection(detection: Detection, camera_id: str, width: int, height: int) -> Detection:
+    if camera_id != DOOR_CAMERA_ID:
+        x_pixel = int(detection.y_pixel)
+        y_pixel = int(width - 1 - detection.x_pixel)
+    else:
+        x_pixel = int(height - 1 - detection.y_pixel)
+        y_pixel = int(detection.x_pixel)
+    return Detection(
+        x_pixel=x_pixel,
+        y_pixel=y_pixel,
+        confidence=detection.confidence,
+        x_min=detection.x_min,
+        y_min=detection.y_min,
+        x_max=detection.x_max,
+        y_max=detection.y_max,
+    )
+
+
 def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
     settings = settings or get_settings()
     database = database or Database(settings.database_path)
     database.initialize()
+    _register_existing_motion_crops(settings.motion_crops_path, database)
     calibration = HomographyCalibration(
         [[0, 0], [640, 0], [640, 360], [0, 360]],
         settings.enclosure_length_meters,
@@ -101,7 +171,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         timestamp = _utc_now()
         latest_detections[camera_id] = detection
         latest_detection_times[camera_id] = timestamp
-        _save_motion_crop(image, detection, timestamp, camera_id)
+        _save_motion_crop(image, detection, timestamp, camera_id, settings.motion_crops_path, database)
         if camera_id == DOOR_CAMERA_ID:
             side = classify_door_detection(detection.x_pixel, detection.y_pixel, image.shape[1], image.shape[0])
             crossing = door_tracker.update(side, timestamp)
@@ -129,6 +199,79 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    def apply_motion_crop_label(filename: str, label: MotionCropLabel) -> bool:
+        crop = database.motion_crop(filename)
+        if crop is None:
+            raise HTTPException(status_code=404, detail="Motion crop not found")
+        if not label.is_turtle and not label.keep_for_training:
+            path = settings.motion_crops_path / filename
+            path.unlink(missing_ok=True)
+            database.delete_motion_crop(filename)
+            return True
+        database.label_motion_crop(filename, label.is_turtle, label.keep_for_training)
+        return False
+
+    @app.get("/api/motion-crops", response_model=MotionCropPage)
+    def list_motion_crops(limit: int = 50, offset: int = 0, is_turtle: bool | None = None) -> MotionCropPage:
+        limit = min(max(limit, 1), 50)
+        offset = max(offset, 0)
+        return MotionCropPage(
+            items=[MotionCrop(**row_to_dict(row)) for row in database.motion_crops(is_turtle, limit, offset)],
+            total=database.motion_crop_count(is_turtle),
+            limit=limit,
+            offset=offset,
+        )
+
+    @app.get("/api/motion-crops/review", response_class=HTMLResponse)
+    def motion_crop_review(page: int = 1) -> HTMLResponse:
+        current_page = max(page, 1)
+        return HTMLResponse(f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion crop review</title><style>
+body {{ margin: 0; background: #eef2f0; color: #17211d; font: 16px Georgia, serif; }}
+header {{ position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; padding: 14px 20px; background: #ffffff; border-bottom: 1px solid #c6d0ca; }}
+button, a {{ border: 1px solid #59665e; background: #ffffff; color: #17211d; padding: 8px 12px; border-radius: 4px; font: inherit; cursor: pointer; text-decoration: none; }}
+button.primary {{ background: #176b48; border-color: #176b48; color: white; }} button.no {{ background: #8e3328; border-color: #8e3328; color: white; }}
+#count {{ margin-left: auto; }} main {{ padding: 18px; }}
+#grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; }}
+.crop {{ background: white; border: 1px solid #c6d0ca; border-radius: 6px; overflow: hidden; }}
+.crop img {{ display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #d5ddd8; }}
+.crop label {{ display: flex; align-items: center; gap: 6px; padding: 9px; }}
+footer {{ display: flex; justify-content: center; gap: 12px; padding: 24px; }}
+</style></head><body><header><strong>Motion crop review</strong><button class="primary" id="yes">Selected: Yes</button><button class="no" id="no">Selected: No</button><label><input type="checkbox" id="keep"> Keep no images for training</label><button id="save">Save</button><span id="count"></span></header><main><div id="grid"></div></main><footer><a id="previous">Previous</a><a id="next">Next</a></footer>
+<script>
+const page = {current_page}, limit = 50, offset = (page - 1) * limit, choices = new Map();
+const grid = document.querySelector('#grid'), selected = () => [...document.querySelectorAll('.pick:checked')].map(input => input.value);
+async function load() {{
+  const data = await fetch(`/api/motion-crops?limit=${{limit}}&offset=${{offset}}`).then(response => response.json());
+  document.querySelector('#count').textContent = `${{data.total}} images`;
+  grid.innerHTML = data.items.map(crop => `<article class="crop"><img loading="lazy" src="/api/motion-crops/${{encodeURIComponent(crop.filename)}}" alt="Motion crop"><label><input class="pick" type="checkbox" value="${{crop.filename}}"> Select</label></article>`).join('');
+  document.querySelector('#previous').href = page > 1 ? `/api/motion-crops/review?page=${{page - 1}}` : '#';
+  document.querySelector('#next').href = offset + limit < data.total ? `/api/motion-crops/review?page=${{page + 1}}` : '#';
+}}
+function mark(isTurtle) {{ selected().forEach(filename => choices.set(filename, {{filename, is_turtle: isTurtle, keep_for_training: !isTurtle && document.querySelector('#keep').checked}})); }}
+document.querySelector('#yes').onclick = () => mark(true); document.querySelector('#no').onclick = () => mark(false);
+document.querySelector('#save').onclick = async () => {{ if (!choices.size) return; await fetch('/api/motion-crops/labels', {{method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{items: [...choices.values()]}})}}); location.reload(); }};
+load();
+</script></body></html>""")
+
+    @app.post("/api/motion-crops/labels")
+    def label_motion_crops(labels: MotionCropLabelBatch) -> dict[str, int]:
+        deleted = sum(apply_motion_crop_label(item.filename, item) for item in labels.items)
+        return {"processed": len(labels.items), "deleted": deleted}
+
+    @app.get("/api/motion-crops/{filename}", response_class=Response)
+    def get_motion_crop(filename: str) -> Response:
+        crop = database.motion_crop(filename)
+        path = settings.motion_crops_path / filename
+        if crop is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="Motion crop not found")
+        return Response(content=path.read_bytes(), media_type="image/jpeg")
+
+    @app.post("/api/motion-crops/{filename}/label")
+    def label_motion_crop(filename: str, label: MotionCropLabel) -> dict[str, bool]:
+        return {"deleted": apply_motion_crop_label(filename, label)}
 
     @app.get("/api/frames/{camera_id}/latest", response_class=Response)
     def latest_frame(camera_id: str) -> Response:
@@ -193,6 +336,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         if payload is None:
             raise HTTPException(status_code=404, detail="No frame received")
         image = decode_jpeg(payload)
+        orig_height, orig_width = image.shape[:2]
         detection = latest_detections.get(camera_id)
         detection_time = latest_detection_times.get(camera_id)
         # Apply the same transformations as _prepare_frame (before overlay)
@@ -204,26 +348,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         # Draw overlay after transformations with adjusted coordinates
         if detection is not None:
-            # Transform detection coordinates for rotated image
-            orig_width, orig_height = 640, 480
-            if camera_id != DOOR_CAMERA_ID:
-                # Rotated 90° CCW: new_x = orig_y, new_y = orig_width - orig_x
-                rotated_x = int(detection.y_pixel)
-                rotated_y = int(orig_width - detection.x_pixel)
-            else:
-                # Rotated 90° CW: new_x = orig_height - orig_y, new_y = orig_x
-                rotated_x = int(orig_height - detection.y_pixel)
-                rotated_y = int(detection.x_pixel)
-            # Create a transformed detection for drawing
-            transformed_detection = Detection(
-                x_pixel=rotated_x,
-                y_pixel=rotated_y,
-                confidence=detection.confidence,
-                x_min=detection.x_min,
-                y_min=detection.y_min,
-                x_max=detection.x_max,
-                y_max=detection.y_max,
-            )
+            transformed_detection = _rotated_detection(detection, camera_id, orig_width, orig_height)
             # Check boundaries after transformation
             show_overlay = False
             if camera_id == DOOR_CAMERA_ID:

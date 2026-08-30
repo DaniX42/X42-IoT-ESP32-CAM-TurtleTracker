@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_path: Path = Path("data/turtle_tracker.db")
+    motion_crops_path: Path = Path("data/motion_crops")
     mock_images_enabled: bool = True
     enclosure_length_meters: float = 7.0
     enclosure_width_meters: float = 2.5

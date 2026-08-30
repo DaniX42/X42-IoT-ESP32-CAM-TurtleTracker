@@ -41,6 +41,36 @@ The service exposes OpenAPI documentation at `/docs`.
 
 `turtle-cam-door` frames never carry an overlay on this endpoint.
 
+## Motion crop review
+
+Each saved motion crop receives a perceptual hash. A new crop that is at least 95% similar to an existing reference crop is discarded automatically. Existing crops are checked during application startup as well. Crops explicitly retained for training are never removed automatically.
+
+`GET /api/motion-crops?limit=50&offset=0` returns a page of up to 50 saved crops, their current labels, and the total count. `GET /api/motion-crops/{filename}` returns the JPEG for review.
+
+`GET /api/motion-crops/review?page=1` provides a browser review grid. Select any number of crops, assign them `Yes` or `No`, optionally retain negative examples for training, then save all selections in one request. Each page contains at most 50 crops.
+
+`POST /api/motion-crops/{filename}/label` accepts a review decision:
+
+```json
+{
+  "is_turtle": false,
+  "keep_for_training": false
+}
+```
+
+Setting `is_turtle` to `true` keeps a positive training example. A negative label deletes the crop by default. Set `keep_for_training` to `true` to retain a negative example that is useful for training.
+
+`POST /api/motion-crops/labels` accepts multiple label objects in one request:
+
+```json
+{
+  "items": [
+    {"filename": "crop-a.jpg", "is_turtle": true},
+    {"filename": "crop-b.jpg", "is_turtle": false, "keep_for_training": true}
+  ]
+}
+```
+
 ## Door calibration frame
 
 `GET /api/frames/turtle-cam-door/calibration` returns the latest door-camera JPEG with the door entrance lines (near/far edges of the entrance gap) drawn on top, for calibrating `vision.DOOR_NEAR_LINE_FRACTION` / `DOOR_FAR_LINE_FRACTION`. It is calibration-only and never served on `/latest`.
